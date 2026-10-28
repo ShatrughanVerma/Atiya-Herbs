@@ -1,0 +1,23 @@
+{
+  "name": "atiyaherbs-call-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Call invitations (Socket.IO) and LiveKit access tokens for Atiya Herbs voice and video calls",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "dev": "node --env-file-if-exists=.env --watch src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">= 22.11.0"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "livekit-server-sdk": "^2.19.2",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
+}

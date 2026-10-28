@@ -1,0 +1,10 @@
+<resources>
+
+    <!-- Android 12+ shows a system splash before the app loads; brand it with the Atiya Herbs logo. -->
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <item name="android:windowSplashScreenBackground">#F9F8F5</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+    </style>
+
+</resources>

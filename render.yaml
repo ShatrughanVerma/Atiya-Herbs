@@ -1,0 +1,20 @@
+# Free hosting for the call backend on Render (https://render.com): no card needed.
+# Steps: docs/CALLS_LIVEKIT.md ("Host the backend")
+services:
+  - type: web
+    name: atiyaherbs-calls
+    runtime: docker
+    plan: free
+    dockerfilePath: ./call-backend/Dockerfile
+    dockerContext: ./call-backend
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "4000"
+      # Secrets: type these in Render's dashboard, never in this file
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
