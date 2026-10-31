@@ -394,6 +394,128 @@ test('tells the user why a call could not start', async () => {
   expect(api.history).toHaveLength(0); // it never started, so it is not logged
 });
 
+const byLabelOrNull = label =>
+  screen.root.findAll(n => n.props.accessibilityLabel === label);
+
+test('the Record button appears only when the server can record and the call is connected', async () => {
+  const { socket } = await connectedOutgoingCall(false);
+  expect(byLabelOrNull('Record call')).toHaveLength(0); // the server hasn't said it can record
+
+  await act(() =>
+    socket.serverSends('session', {
+      activeCallId: 'c1',
+      recordingAvailable: true,
+    }),
+  );
+  expect(api.recordingAvailable).toBe(true);
+  expect(byLabelOrNull('Record call').length).toBeGreaterThan(0);
+});
+
+test('recording starts only after the other person allows it, and either side can stop it', async () => {
+  const { socket } = await connectedOutgoingCall(false);
+  await act(() =>
+    socket.serverSends('session', {
+      activeCallId: 'c1',
+      recordingAvailable: true,
+    }),
+  );
+
+  await act(() => button('Record call').props.onPress());
+  expect(sent(socket, 'recording:request')[0].payload).toEqual({
+    callId: 'c1',
+  });
+  expect(api.recording).toBe('asking'); // waiting: nothing is recording yet
+  expect(byLabelOrNull('Recording')).toHaveLength(0);
+
+  await act(() => sent(socket, 'recording:request')[0].ack({ ok: true }));
+  await act(() =>
+    socket.serverSends('recording:state', { callId: 'c1', state: 'on' }),
+  );
+  expect(api.recording).toBe('on');
+  expect(byLabelOrNull('Recording').length).toBeGreaterThan(0); // the red "Recording" badge
+
+  await act(() => button('Stop recording').props.onPress());
+  expect(sent(socket, 'recording:stop')[0].payload).toEqual({ callId: 'c1' });
+  expect(api.recording).toBe('off');
+});
+
+test('if they say no, or the server refuses, the user is told and nothing records', async () => {
+  const { socket } = await connectedOutgoingCall(false);
+  await act(() =>
+    socket.serverSends('session', {
+      activeCallId: 'c1',
+      recordingAvailable: true,
+    }),
+  );
+
+  await act(() => button('Record call').props.onPress());
+  await act(() =>
+    socket.serverSends('recording:state', {
+      callId: 'c1',
+      state: 'off',
+      reason: 'declined',
+    }),
+  );
+  expect(api.recording).toBe('off');
+  expect(Alert.alert).toHaveBeenCalledWith(
+    'Recording',
+    'They chose not to record this call.',
+  );
+
+  await act(() => button('Record call').props.onPress());
+  await act(() =>
+    sent(socket, 'recording:request')[1].ack({ ok: false, error: 'quota' }),
+  );
+  expect(api.recording).toBe('off');
+  expect(Alert.alert).toHaveBeenLastCalledWith(
+    'Recording',
+    expect.stringContaining('free recording time is used up'),
+  );
+});
+
+test('when the other person asks to record, we see who asked and must choose Allow or Not now', async () => {
+  const { socket } = await connectedOutgoingCall(false);
+  await act(() =>
+    socket.serverSends('recording:requested', { callId: 'c1', from: BILAL }),
+  );
+  expect(api.recordingRequest).toEqual({ from: BILAL });
+  expect(byLabelOrNull('Allow recording').length).toBeGreaterThan(0);
+
+  await act(() => button('Do not allow recording').props.onPress());
+  expect(sent(socket, 'recording:respond')[0].payload).toEqual({
+    callId: 'c1',
+    allow: false,
+  });
+  expect(api.recordingRequest).toBeNull();
+
+  await act(() =>
+    socket.serverSends('recording:requested', { callId: 'c1', from: BILAL }),
+  );
+  await act(() => button('Allow recording').props.onPress());
+  expect(sent(socket, 'recording:respond')[1].payload).toEqual({
+    callId: 'c1',
+    allow: true,
+  });
+});
+
+test('a recording request for some other call is ignored, and recording resets when the call ends', async () => {
+  const { socket } = await connectedOutgoingCall(false);
+  await act(() =>
+    socket.serverSends('recording:requested', { callId: 'old', from: BILAL }),
+  );
+  expect(api.recordingRequest).toBeNull();
+
+  await act(() =>
+    socket.serverSends('recording:state', { callId: 'c1', state: 'on' }),
+  );
+  expect(api.recording).toBe('on');
+  await act(() =>
+    socket.serverSends('call:ended', { callId: 'c1', reason: 'ended' }),
+  );
+  expect(api.recording).toBe('off');
+  expect(byLabelOrNull('Recording')).toHaveLength(0);
+});
+
 test('a second call cannot start while one is open, and the log can be cleared', async () => {
   const socket = await render();
   await act(() => api.startCall(BILAL, false));

@@ -107,6 +107,12 @@ export default function CallOverlay() {
     toggleSpeaker,
     toggleCamera,
     flipCamera,
+    recordingAvailable,
+    recording,
+    recordingRequest,
+    requestRecording,
+    respondRecording,
+    stopRecording,
   } = useCall();
   const duration = useTimer(call?.connectedAt);
 
@@ -145,9 +151,19 @@ export default function CallOverlay() {
         <SafeAreaView style={styles.content} edges={['top', 'bottom']}>
           <View style={styles.topBar}>
             <View style={styles.topSide} />
-            <View style={styles.encrypted}>
-              <Text style={styles.encryptedText}>Atiya Herbs call</Text>
-            </View>
+            {recording === 'on' && !ended ? (
+              <View
+                style={styles.recordingBadge}
+                accessibilityLabel="Recording"
+              >
+                <View style={styles.recordingDot} />
+                <Text style={styles.recordingText}>Recording</Text>
+              </View>
+            ) : (
+              <View style={styles.encrypted}>
+                <Text style={styles.encryptedText}>Atiya Herbs call</Text>
+              </View>
+            )}
             <View style={styles.topSide} />
           </View>
 
@@ -176,6 +192,36 @@ export default function CallOverlay() {
           <View style={styles.middle}>
             {bigVideo ? null : <Avatar name={call.peer.name} size={176} />}
           </View>
+
+          {/* The other person asks to record: nothing is recorded unless we allow it */}
+          {recordingRequest && !ended && (
+            <View style={styles.consent}>
+              <Text style={styles.consentTitle}>
+                {recordingRequest.from.name} wants to record this call
+              </Text>
+              <Text style={styles.consentNote}>
+                The recording is saved privately. You can stop it at any time.
+              </Text>
+              <View style={styles.consentButtons}>
+                <Pressable
+                  style={[styles.consentBtn, styles.consentDecline]}
+                  onPress={() => respondRecording(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Do not allow recording"
+                >
+                  <Text style={styles.consentBtnText}>Not now</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.consentBtn, styles.consentAllow]}
+                  onPress={() => respondRecording(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Allow recording"
+                >
+                  <Text style={styles.consentBtnText}>Allow</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
 
           {incoming ? (
             <View style={styles.incomingRow}>
@@ -216,6 +262,30 @@ export default function CallOverlay() {
                       icon="camera-flip-outline"
                       label="Switch camera"
                       onPress={flipCamera}
+                    />
+                  )}
+                  {recordingAvailable && call.status === 'connected' && (
+                    <Action
+                      icon={
+                        recording === 'on'
+                          ? 'record-circle'
+                          : 'record-circle-outline'
+                      }
+                      label={
+                        recording === 'on'
+                          ? 'Stop recording'
+                          : recording === 'asking'
+                          ? 'Waiting for them to allow recording'
+                          : 'Record call'
+                      }
+                      active={recording === 'on'}
+                      onPress={
+                        recording === 'on'
+                          ? stopRecording
+                          : recording === 'asking'
+                          ? undefined
+                          : requestRecording
+                      }
                     />
                   )}
                   <Action
@@ -265,6 +335,46 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   topSide: { width: 30 },
+  recordingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: RED,
+    marginRight: 6,
+  },
+  recordingText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  consent: {
+    backgroundColor: PANEL,
+    borderRadius: 16,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 16,
+  },
+  consentTitle: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  consentNote: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  consentButtons: { flexDirection: 'row', marginTop: 14 },
+  consentBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  consentDecline: { backgroundColor: 'rgba(255,255,255,0.15)', marginRight: 8 },
+  consentAllow: { backgroundColor: GREEN, marginLeft: 8 },
+  consentBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   encrypted: { flexDirection: 'row', alignItems: 'center' },
   encryptedText: {
     color: 'rgba(255,255,255,0.7)',

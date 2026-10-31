@@ -40,6 +40,15 @@ const START_ERRORS = {
     'Calling is not set up on the server yet (LiveKit keys are missing).',
 };
 
+// Why a recording could not start (the server's reason -> what we tell the user)
+const RECORDING_ERRORS = {
+  unavailable: 'Recording is not set up on the server yet.',
+  'not-active': 'You can record only while the call is connected.',
+  already: 'A recording request is already open.',
+  quota: 'This month’s free recording time is used up.',
+  failed: 'The recording could not be started.',
+};
+
 const endMessage = (reason, direction) => {
   if (reason === 'rejected') {
     return 'Call declined';
@@ -83,6 +92,10 @@ export function CallProvider({ children }) {
   const [localVideo, setLocalVideo] = useState(null); // track references for <VideoTrack>
   const [remoteVideo, setRemoteVideo] = useState(null);
   const [peerMedia, setPeerMedia] = useState(NO_PEER_MEDIA); // the other person's mic / camera state
+  // Call recording: it only starts after the other person agrees
+  const [recordingAvailable, setRecordingAvailable] = useState(false); // server can record
+  const [recording, setRecording] = useState('off'); // 'off' | 'asking' (waiting for them) | 'on'
+  const [recordingRequest, setRecordingRequest] = useState(null); // {from: {id, name}} when they ask us
 
   // Socket and LiveKit callbacks read these refs, so they always see the latest values
   const socketRef = useRef(null);
@@ -186,6 +199,8 @@ export function CallProvider({ children }) {
     setLocalVideo(null);
     setRemoteVideo(null);
     setPeerMedia(NO_PEER_MEDIA);
+    setRecording('off');
+    setRecordingRequest(null);
     setCameraOn(false);
     setMuted(false);
     mutedRef.current = false;
@@ -467,6 +482,44 @@ export function CallProvider({ children }) {
 
   const clearHistory = useCallback(() => setHistory([]), []);
 
+  // Ask the other person to record the call. Nothing is recorded unless they agree.
+  const requestRecording = useCallback(() => {
+    const current = callRef.current;
+    if (!current?.id || current.status !== 'connected') {
+      return;
+    }
+    setRecording('asking');
+    emit('recording:request', { callId: current.id }, res => {
+      if (!res?.ok) {
+        setRecording('off');
+        Alert.alert(
+          'Recording',
+          RECORDING_ERRORS[res?.error] || RECORDING_ERRORS.failed,
+        );
+      }
+    });
+  }, [emit]);
+
+  // Answer a request from the other person
+  const respondRecording = useCallback(
+    allow => {
+      const current = callRef.current;
+      setRecordingRequest(null);
+      if (current?.id) {
+        emit('recording:respond', { callId: current.id, allow });
+      }
+    },
+    [emit],
+  );
+
+  const stopRecording = useCallback(() => {
+    const current = callRef.current;
+    if (current?.id) {
+      emit('recording:stop', { callId: current.id });
+    }
+    setRecording('off');
+  }, [emit]);
+
   // Connect to the call backend while someone with a mobile number is logged in
   useEffect(() => {
     if (!myId) {
@@ -483,10 +536,31 @@ export function CallProvider({ children }) {
     socket.on('disconnect', () => setServerConnected(false));
     socket.on('connect_error', () => setServerConnected(false));
 
-    socket.on('session', ({ activeCallId }) => {
+    socket.on('session', ({ activeCallId, recordingAvailable: canRecord }) => {
+      setRecordingAvailable(!!canRecord);
       // The server still thinks we're in a call this phone no longer has (e.g. after an app restart)
       if (activeCallId && activeCallId !== callRef.current?.id) {
         socket.emit('call:end', { callId: activeCallId });
+      }
+    });
+
+    // The other person asks to record this call: we must answer Allow / Not now
+    socket.on('recording:requested', ({ callId, from }) => {
+      if (callId === callRef.current?.id) {
+        setRecordingRequest({ from });
+      }
+    });
+
+    socket.on('recording:state', ({ callId, state, reason }) => {
+      if (callId !== callRef.current?.id) {
+        return;
+      }
+      setRecordingRequest(null);
+      setRecording(state === 'on' ? 'on' : 'off');
+      if (state === 'off' && reason === 'declined') {
+        Alert.alert('Recording', 'They chose not to record this call.');
+      } else if (state === 'off' && RECORDING_ERRORS[reason]) {
+        Alert.alert('Recording', RECORDING_ERRORS[reason]);
       }
     });
 
@@ -558,6 +632,7 @@ export function CallProvider({ children }) {
       socketRef.current = null;
       setServerConnected(false);
       setOnlineUsers([]);
+      setRecordingAvailable(false);
     };
   }, [myId, myName, finish, joinRoom, leaveRoom, patch, setCurrent]);
 
@@ -575,6 +650,9 @@ export function CallProvider({ children }) {
       localVideo,
       remoteVideo,
       peerMedia,
+      recordingAvailable,
+      recording,
+      recordingRequest,
       startCall,
       acceptCall,
       rejectCall,
@@ -583,6 +661,9 @@ export function CallProvider({ children }) {
       toggleSpeaker,
       toggleCamera,
       flipCamera,
+      requestRecording,
+      respondRecording,
+      stopRecording,
       clearHistory,
     }),
     [
@@ -598,6 +679,9 @@ export function CallProvider({ children }) {
       localVideo,
       remoteVideo,
       peerMedia,
+      recordingAvailable,
+      recording,
+      recordingRequest,
       startCall,
       acceptCall,
       rejectCall,
@@ -606,6 +690,9 @@ export function CallProvider({ children }) {
       toggleSpeaker,
       toggleCamera,
       flipCamera,
+      requestRecording,
+      respondRecording,
+      stopRecording,
       clearHistory,
     ],
   );

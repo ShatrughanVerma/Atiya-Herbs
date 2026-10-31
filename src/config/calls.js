@@ -3,7 +3,7 @@
 //
 // Release builds (the APK you give to users) use CALLS_BACKEND_URL. It must be a public https://
 // address, so calls work from any network. Host call-backend on any Node.js host with HTTPS.
-const CALLS_BACKEND_URL = 'https://calls.example.com'; // TODO: replace with your real domain
+const CALLS_BACKEND_URL = 'https://atiyaherbs-calls.onrender.com';
 
 // Development (run-android): the backend running on your own PC
 //  - Android emulator: http://10.0.2.2:4000
