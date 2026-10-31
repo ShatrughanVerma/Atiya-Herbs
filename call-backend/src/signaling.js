@@ -14,10 +14,22 @@ const crypto = require('node:crypto');
 //   call:incoming {callId, from: {id, name}, video}
 //   call:ready    {callId, serverUrl, token}        both people, after accept: join the LiveKit room
 //   call:ended    {callId, reason: 'rejected'|'cancelled'|'no-answer'|'ended'|'disconnected'}
+//
+// Recording (only during a connected call, and only after the OTHER person agrees)
+//   recording:request {callId}        (ack → {ok} or {ok: false, error})  one person asks to record
+//   recording:respond {callId, allow} the other person agrees or declines
+//   recording:stop    {callId}        either person stops it (it also stops when the call ends)
+//   recording:requested {callId, from: {id, name}}   → the other person: asked to record
+//   recording:state     {callId, state: 'on'|'off', reason?}   → both people
 
 const normalizeId = value => String(value || '').trim().toLowerCase().slice(0, 120);
 
-function attachSignaling(io, {tokens, ringTimeoutMs = 45000, reconnectGraceMs = 15000, log = () => {}}) {
+const NO_RECORDING = {available: false, start: async () => ({ok: false, error: 'unavailable'}), stopAndFinish: async () => {}};
+
+function attachSignaling(
+  io,
+  {tokens, recording = NO_RECORDING, ringTimeoutMs = 45000, reconnectGraceMs = 15000, log = () => {}},
+) {
   const users = new Map(); // userId -> {id, name, socketId, callId, graceTimer}
   const calls = new Map(); // callId -> {id, room, caller, callee, video, state: 'ringing'|'active', ringTimer}
 
@@ -46,12 +58,22 @@ function attachSignaling(io, {tokens, ringTimeoutMs = 45000, reconnectGraceMs = 
     );
   };
 
+  // Stops this call's recording (if one is running) and lets the upload finish in the background
+  const stopRecording = call => {
+    const current = call.recording;
+    call.recording = null;
+    if (current?.state === 'on') {
+      recording.stopAndFinish(current.id).catch(e => log(`recording finish failed: ${e.message}`));
+    }
+  };
+
   const endCall = (callId, reason, endedBy) => {
     const call = calls.get(callId);
     if (!call) {
       return;
     }
     clearTimeout(call.ringTimer);
+    stopRecording(call);
     calls.delete(callId);
     for (const userId of [call.caller, call.callee]) {
       const user = users.get(userId);
@@ -87,7 +109,7 @@ function attachSignaling(io, {tokens, ringTimeoutMs = 45000, reconnectGraceMs = 
       user = {id: me, name: socket.data.name, socketId: socket.id, callId: null, graceTimer: null};
       users.set(me, user);
     }
-    socket.emit('session', {activeCallId: user.callId});
+    socket.emit('session', {activeCallId: user.callId, recordingAvailable: recording.available});
     broadcastUsers();
 
     socket.on('call:start', (payload, ack) => {
@@ -152,6 +174,66 @@ function attachSignaling(io, {tokens, ringTimeoutMs = 45000, reconnectGraceMs = 
       const call = callFor(socket, payload?.callId);
       if (call) {
         endCall(call.id, call.state === 'ringing' ? 'cancelled' : 'ended', me);
+      }
+    });
+
+    // ---- Recording: one person asks, the other must agree before anything is recorded ----
+    const peerOf = call => (call.caller === me ? call.callee : call.caller);
+    const tellBoth = (call, payload) => {
+      emitTo(call.caller, 'recording:state', {callId: call.id, ...payload});
+      emitTo(call.callee, 'recording:state', {callId: call.id, ...payload});
+    };
+
+    socket.on('recording:request', (payload, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      const call = callFor(socket, payload?.callId);
+      if (!call || call.state !== 'active') {
+        return reply({ok: false, error: 'not-active'});
+      }
+      if (!recording.available) {
+        return reply({ok: false, error: 'unavailable'});
+      }
+      if (call.recording) {
+        return reply({ok: false, error: 'already'});
+      }
+      call.recording = {state: 'requested', requestedBy: me};
+      emitTo(peerOf(call), 'recording:requested', {callId: call.id, from: {id: me, name: user.name}});
+      reply({ok: true});
+    });
+
+    socket.on('recording:respond', async payload => {
+      const call = callFor(socket, payload?.callId);
+      const pending = call?.recording;
+      // Only the person who was asked can answer, and only while the question is open
+      if (!call || pending?.state !== 'requested' || pending.requestedBy === me) {
+        return;
+      }
+      if (!payload.allow) {
+        call.recording = null;
+        return tellBoth(call, {state: 'off', reason: 'declined'});
+      }
+      pending.state = 'starting'; // blocks a second answer while LiveKit starts
+      const result = await recording.start(call, {requestedBy: pending.requestedBy, allowedBy: me});
+      if (calls.get(call.id) !== call) {
+        // The call ended while recording was starting
+        if (result.ok) {
+          recording.stopAndFinish(result.id).catch(() => {});
+        }
+        return;
+      }
+      if (!result.ok) {
+        call.recording = null;
+        return tellBoth(call, {state: 'off', reason: result.error});
+      }
+      call.recording = {state: 'on', id: result.id, requestedBy: pending.requestedBy, allowedBy: me};
+      tellBoth(call, {state: 'on'});
+    });
+
+    socket.on('recording:stop', payload => {
+      const call = callFor(socket, payload?.callId);
+      if (call?.recording) {
+        stopRecording(call);
+        tellBoth(call, {state: 'off', reason: 'stopped'});
       }
     });
 
