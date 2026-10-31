@@ -18,3 +18,29 @@ services:
         sync: false
       - key: LIVEKIT_API_SECRET
         sync: false
+      # Call recording (optional, see docs/CALL_RECORDING.md). Leave empty to switch recording off.
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: CF_ACCOUNT_ID
+        sync: false
+      - key: D1_DATABASE_ID
+        sync: false
+      - key: CF_API_TOKEN
+        sync: false
+      - key: RECORDING_MODE
+        value: audio
+      # Store recordings in Cloudinary (optional); R2 above is then only a short staging area
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_DELIVERY_TYPE
+        value: authenticated
