@@ -118,10 +118,10 @@ minutes khatam honge.
 | Cheez | Jagah |
 |---|---|
 | LiveKit URL, API key, API secret | Local: `call-backend/.env` (git me nahi). Render: Dashboard → service → Environment |
-| Backend ka address (app me) | `src/config/calls.js` → `CALLS_BACKEND_URL` |
+| Backend ka address (app me) | `src/calling/config.js` → `CALLS_BACKEND_URL` |
 | Backend health check | `https://atiyaherbs-calls.onrender.com/health` |
 | Backend code | `call-backend/` |
-| App ka call logic / screens | `src/context/CallContext.js`, `src/components/CallOverlay.js`, `src/screens/CallsScreen.js` |
+| App ka call logic / screens | `src/calling/CallContext.js`, `src/calling/CallOverlay.js`, `src/calling/CallsScreen.js` |
 | Render ki settings (file) | `render.yaml` |
 
 - **API secret kabhi app me ya git me mat daalo.** Sirf backend (`.env` ya Render) me.

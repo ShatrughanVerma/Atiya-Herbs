@@ -5,8 +5,8 @@ module.exports = {
     './node_modules/@react-native-google-signin/google-signin/jest/build/jest/setup.js',
     './jest.setup.js',
   ],
-  // The call backend is a separate Node project with its own tests (npm test in call-backend/)
-  modulePathIgnorePatterns: ['<rootDir>/call-backend/'],
+  // The backend servers are separate Node projects with their own tests (npm test in call-backend/ and backend/)
+  modulePathIgnorePatterns: ['<rootDir>/call-backend/', '<rootDir>/backend/'],
   transformIgnorePatterns: [
     'node_modules/(?!((jest-)?react-native|@react-native(-community)?|@react-navigation|react-native-vector-icons|@react-native-google-signin|react-native-image-picker)/)',
   ],

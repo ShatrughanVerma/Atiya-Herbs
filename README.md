@@ -1,97 +1,82 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Atiya Herbs
 
-# Getting Started
+Mobile app for the Atiya Herbs store (Unani and Ayurvedic medicines): shop, clinic locator, voice search,
+and **voice and video calls** with optional **call recording**. React Native (CLI, JavaScript), Android first.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Project layout
 
-## Step 1: Start Metro
+```
+.
+├── App.js, index.js            app entry (providers, LiveKit setup)
+├── src/
+│   ├── calling/                voice & video calls: context, call screen, Calls list, permissions, contacts, config
+│   ├── navigation/             stacks and tabs
+│   ├── screens/                Home, Explore, Clinic, Reels, Cart, Profile, auth/, shop/
+│   ├── components/             shared UI (shop/ cards, headers, clinic locator)
+│   ├── context/                Auth and Cart state
+│   ├── data/                   catalog and store info (static data for now)
+│   ├── utils/                  location, voice search, product filters, profile photo, Google sign-in
+│   ├── config/                 Google sign-in settings
+│   ├── theme/                  colours and spacing
+│   └── assets/                 fonts, icons, images
+├── backend/                    Node.js API (Express, Prisma, SQL Server): OTP login, accounts, security base
+├── call-backend/               Node.js server: rings the other phone, makes LiveKit tokens, call recording
+├── android/, ios/              native projects (Kotlin modules in android/.../voice and .../contacts)
+├── __tests__/                  app tests (Jest); call-backend/test has the server tests
+├── docs/                       plans and call documentation (see below)
+└── render.yaml                 Render blueprint that hosts call-backend
+```
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Run the app (Windows PowerShell)
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+```powershell
+npm install
+npx react-native start --reset-cache     # keep this window open
+npx react-native run-android             # in a second window
+```
 
-```sh
-# Using npm
+Native code changed? Run `run-android` again (a reload is not enough).
+
+## Run the call backend locally
+
+```powershell
+cd call-backend
+npm install
+Copy-Item .env.example .env              # then fill in your LiveKit keys
 npm start
-
-# OR using Yarn
-yarn start
 ```
 
-## Step 2: Build and run your app
+The app talks to `http://10.0.2.2:4000` in development (the emulator's name for your PC) and to the Render
+address in release builds. Both are set in `src/calling/config.js`.
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+## Tests and checks
 
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+```powershell
+npm test                                 # app tests
+npx eslint .                             # lint
+cd call-backend; npm test                # server tests
 ```
 
-### iOS
+## Release APK
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
+```powershell
+cd android
+.\gradlew.bat assembleRelease
+# android\app\build\outputs\apk\release\app-release.apk
 ```
 
-Then, and every time you update your native dependencies, run:
+The APK is signed with the debug key; create your own keystore before publishing to Google Play.
 
-```sh
-bundle exec pod install
-```
+## Documentation
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+| File | What it covers |
+|---|---|
+| `docs/CALLS_LIVEKIT.md` | How calls work and how to set them up (LiveKit, backend, hosting) |
+| `docs/CALL_RECORDING.md` | Call recording: consent, R2, Cloudinary, Cloudflare D1 |
+| `docs/CALLING_OVERVIEW.md` | What is used for calling and what is free, with limits |
+| `docs/DEVELOPMENT_PLAN.md`, `docs/SYSTEM_PROMPT.md` | Product plan and engineering rules |
 
-```sh
-# Using npm
-npm run ios
+## Secrets
 
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+API keys and secrets live only in `call-backend/.env` (git-ignored) and in Render's Environment settings.
+Never put them in the app or in git.

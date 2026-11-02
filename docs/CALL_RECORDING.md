@@ -99,6 +99,29 @@ How it is stored:
 
 To check: Cloudinary dashboard → **Media Library** → folder `atiyaherbs/call-recordings`.
 
+### Automatic compression after the call
+
+Nothing to press: when the call ends (either person hangs up, or the connection is lost) the recording stops,
+LiveKit finishes the file, and then the backend **compresses it and stores the small version**:
+
+```
+call ends → LiveKit file in R2 → streamed through ffmpeg (compress) → Cloudinary → R2 copy deleted
+```
+
+- **Audio** (default): mono Opus at 24 kbit/s, about 11 MB an hour. **Video**: at most 640 px wide, H.264 at a modest quality.
+- It streams (no temp files), so it needs little memory even for a long call. ffmpeg is installed in the Docker
+  image (`call-backend/Dockerfile`), so it works on Render without any setup.
+- **Nothing is lost if it fails.** No ffmpeg, or ffmpeg crashes → the original recording is stored instead
+  (and a half-finished upload is removed). Cloudinary down → the file stays in R2.
+- **Safety net:** a recording left in R2 (for example the server restarted mid-way) is picked up and finished
+  at start-up and every 15 minutes. Files Cloudinary can never take (over 100 MB even after compression) are left alone.
+- D1 keeps `original_size_bytes`, `size_bytes` (final) and `compressed` (1 = yes), so you can see the saving:
+  `SELECT call_id, original_size_bytes, size_bytes, compressed FROM call_recordings ORDER BY created_at DESC LIMIT 5;`
+- Settings: `RECORDING_COMPRESS=true` (set `false` to store originals), `RECORDING_AUDIO_BITRATE=24k`
+  (raise it, e.g. `32k`, for clearer audio). `/health` shows `"recordingCompression": true` when it is on.
+- Compression happens only for recordings that **both people allowed**. Recording never starts on its own.
+- Running the backend on your own PC: install ffmpeg and set `FFMPEG_PATH`, or compression is skipped (originals are stored).
+
 ## Step 4: Try it (two phones)
 
 1. Start a call and wait until it is connected. A **Record call** button appears (only if `recordingAvailable` is true).

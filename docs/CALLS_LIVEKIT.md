@@ -17,10 +17,10 @@ running your own TURN server.
 | Part | File |
 |---|---|
 | Ringing + tokens | `call-backend/src/signaling.js`, `call-backend/src/livekitToken.js` |
-| Call logic (join room, mute, speaker, camera, history) | `src/context/CallContext.js` |
-| Call screen (incoming / outgoing / in-call) | `src/components/CallOverlay.js` |
-| Calls list + "New call" | `src/screens/CallsScreen.js` (Home → Ask Expert) |
-| Backend address | `src/config/calls.js` |
+| Call logic (join room, mute, speaker, camera, history) | `src/calling/CallContext.js` |
+| Call screen (incoming / outgoing / in-call) | `src/calling/CallOverlay.js` |
+| Calls list + "New call" | `src/calling/CallsScreen.js` (Home → Ask Expert) |
+| Backend address | `src/calling/config.js` |
 | LiveKit setup | `index.js` (`registerGlobals`), `MainApplication.kt` (`LiveKitReactNative.setup`) |
 
 ## Step 1: LiveKit project (once)
@@ -52,7 +52,7 @@ npx react-native run-android              # in a second window; native code chan
 
 - **Emulator:** the app already points at `http://10.0.2.2:4000` (the emulator's name for your PC).
 - **Real phone:** it must reach your PC. Same Wi-Fi as the PC, then set `DEV_BACKEND_URL` in
-  `src/config/calls.js` to `http://<PC Wi-Fi IP>:4000`, and allow port 4000 in Windows Firewall
+  `src/calling/config.js` to `http://<PC Wi-Fi IP>:4000`, and allow port 4000 in Windows Firewall
   (PowerShell as Administrator):
   `New-NetFirewallRule -DisplayName "Call backend" -Direction Inbound -Protocol TCP -LocalPort 4000 -Action Allow -Profile Private`
 
@@ -75,7 +75,7 @@ with an `https://` address. Render's free plan works (no card, WebSockets and HT
    `"livekitConfigured":true`.
 5. Keep it awake: Render's free server sleeps after ~15 minutes without web requests, and the next call
    would wait ~30-60 s. At uptimerobot.com add an HTTP monitor on `<address>/health` every 5 minutes.
-6. Put the address in `src/config/calls.js` (`CALLS_BACKEND_URL`) and build the APK:
+6. Put the address in `src/calling/config.js` (`CALLS_BACKEND_URL`) and build the APK:
 
 ```powershell
 cd C:\Users\HP\AtiyaHerbs\android
@@ -103,7 +103,7 @@ cd call-backend; npm test; cd ..          # backend: ringing and tokens
 3. **Login isn't remembered** when the app closes (`AuthContext.js` TODO), so users must log in again
    to receive calls.
 4. **Host the backend with HTTPS.** Release builds block plain `http://`. Put `call-backend/` on any
-   Node.js host with a domain and HTTPS, then set `CALLS_BACKEND_URL` in `src/config/calls.js`.
+   Node.js host with a domain and HTTPS, then set `CALLS_BACKEND_URL` in `src/calling/config.js`.
 5. **Release signing:** the APK is signed with the debug key; make your own keystore for Play Store.
 6. The ringing is a vibration only; add a ringtone if you want one.
 7. LiveKit Cloud's free plan has monthly limits. Check its current limits, and consider self-hosting

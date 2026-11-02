@@ -11,8 +11,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { VideoTrack } from '@livekit/react-native';
 import Avatar from './Avatar';
-import { useCall } from '../context/CallContext';
-import { formatMobile } from '../utils/phone';
+import { useCall } from './CallContext';
+import { formatMobile } from './phone';
 
 // WhatsApp-style call screen, shown above every screen. The audio and video come from LiveKit
 // (see CallContext.js); this only draws them.

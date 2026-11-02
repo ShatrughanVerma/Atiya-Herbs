@@ -1,4 +1,4 @@
-package com.atiyaherbs.calls
+package com.atiyaherbs.contacts
 
 import android.app.Activity
 import android.content.ActivityNotFoundException

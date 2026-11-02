@@ -1,4 +1,4 @@
-import {formatMobile, normalizeMobile} from '../src/utils/phone';
+import {formatMobile, normalizeMobile} from '../../src/calling/phone';
 
 test('turns any way of writing an Indian mobile number into 10 digits', () => {
   expect(normalizeMobile('9876543210')).toBe('9876543210');

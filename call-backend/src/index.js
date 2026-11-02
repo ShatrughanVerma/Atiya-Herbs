@@ -41,6 +41,7 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
       livekitConfigured: tokens.configured,
       recordingAvailable: recording.available,
       recordingDestination: recording.destination,
+      recordingCompression: recording.compression,
       recordingDetailsStore: store.kind,
       online: [...state.users.values()].filter(u => u.socketId).length,
       calls: state.calls.size,
@@ -59,15 +60,21 @@ const lanAddresses = () =>
 if (require.main === module) {
   const port = Number(process.env.PORT) || 4000;
   const {server, tokens, store, recording} = createCallBackend();
-  // Creates the recordings table in Cloudflare D1 if it isn't there yet
-  store.init().catch(e => console.warn(`  Could not prepare the recordings database: ${e.message}`));
+  // Creates the recordings table in Cloudflare D1 if it isn't there yet, then moves any recording that is still
+  // waiting in R2 (for example after a restart) to Cloudinary, and checks again every 15 minutes
+  const sweep = () => recording.retryPendingArchives().catch(e => console.warn(`  Recording sweep failed: ${e.message}`));
+  store
+    .init()
+    .then(() => setTimeout(sweep, 30_000).unref())
+    .catch(e => console.warn(`  Could not prepare the recordings database: ${e.message}`));
+  setInterval(sweep, 15 * 60_000).unref();
   server.listen(port, '0.0.0.0', () => {
     console.log(`Atiya Herbs call backend listening on port ${port}`);
     for (const ip of lanAddresses()) {
       console.log(`  Phones on this Wi-Fi can use: http://${ip}:${port}`);
     }
     console.log(
-      `  Call recording: ${recording.available ? `on (${recording.mode} only, stored in ${recording.destination})` : 'off (needs Cloudflare R2 settings)'}`,
+      `  Call recording: ${recording.available ? `on (${recording.mode} only, stored in ${recording.destination}${recording.compression ? ', compressed' : ''})` : 'off (needs Cloudflare R2 settings)'}`,
     );
     if (!tokens.configured) {
       console.warn('  LiveKit is NOT configured: fill LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env');

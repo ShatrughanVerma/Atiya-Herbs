@@ -16,6 +16,7 @@ const ENV = {
   R2_SECRET_ACCESS_KEY: 'r2-secret',
   R2_BUCKET: 'staging-bucket',
   LIVEKIT_URL: 'wss://example.livekit.cloud',
+  RECORDING_COMPRESS: 'false', // these tests are about copying; compression has its own tests below
   RECORDING_POLL_MS: '1',
   RECORDING_POLL_ATTEMPTS: '3',
 };
@@ -40,10 +41,15 @@ const fakeCloudinary = ({fail = false} = {}) => {
   const fake = {
     configured: null,
     uploads: [],
+    destroyed: [],
     config(settings) {
       fake.configured = settings;
     },
     uploader: {
+      async destroy(publicId, options) {
+        fake.destroyed.push({publicId, options});
+        return {result: 'ok'};
+      },
       upload_stream(options, callback) {
         const chunks = [];
         const sink = new Writable({

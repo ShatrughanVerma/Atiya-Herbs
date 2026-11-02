@@ -4,8 +4,8 @@ import {SafeAreaProvider} from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
 import {AuthProvider} from './src/context/AuthContext';
 import {CartProvider} from './src/context/CartContext';
-import {CallProvider} from './src/context/CallContext';
-import CallOverlay from './src/components/CallOverlay';
+import {CallProvider} from './src/calling/CallContext';
+import CallOverlay from './src/calling/CallOverlay';
 
 export default function App() {
   return (

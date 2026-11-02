@@ -7,7 +7,7 @@ import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.atiyaherbs.voice.VoiceSearchPackage
-import com.atiyaherbs.calls.CallsPackage
+import com.atiyaherbs.contacts.ContactsPackage
 import com.livekit.reactnative.LiveKitReactNative
 import com.livekit.reactnative.audio.AudioType
 
@@ -19,7 +19,7 @@ class MainApplication : Application(), ReactApplication {
       packageList =
         PackageList(this).packages.apply {
           add(VoiceSearchPackage())
-          add(CallsPackage())
+          add(ContactsPackage())
         },
     )
   }

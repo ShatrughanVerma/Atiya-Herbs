@@ -4,9 +4,9 @@ import { Alert, Modal, Platform, Vibration } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AudioSession } from '@livekit/react-native';
 import { Room as FakeRoom } from 'livekit-client';
-import { AuthProvider, useAuth } from '../src/context/AuthContext';
-import { CallProvider, callUserId, useCall } from '../src/context/CallContext';
-import CallOverlay from '../src/components/CallOverlay';
+import { AuthProvider, useAuth } from '../../src/context/AuthContext';
+import { CallProvider, callUserId, useCall } from '../../src/calling/CallContext';
+import CallOverlay from '../../src/calling/CallOverlay';
 
 // The first render loads the whole screen and its icon fonts, which is slow when tests run in parallel
 jest.setTimeout(30000);

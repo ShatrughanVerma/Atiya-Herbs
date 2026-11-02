@@ -11,10 +11,10 @@ import { Alert, Platform, Vibration } from 'react-native';
 import { io } from 'socket.io-client';
 import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent, Track } from 'livekit-client';
-import { CALL_BACKEND_URL } from '../config/calls';
-import { ensureCallPermissions } from '../utils/callPermissions';
-import { normalizeMobile } from '../utils/phone';
-import { useAuth } from './AuthContext';
+import { CALL_BACKEND_URL } from './config';
+import { ensureCallPermissions } from './permissions';
+import { normalizeMobile } from './phone';
+import { useAuth } from '../context/AuthContext';
 
 // One-to-one voice and video calls.
 //  - Ringing: the Socket.IO connection to call-backend/ (call:start / incoming / accept / reject / end).

@@ -1,0 +1,85 @@
+// Atiya Herbs database schema (SQL Server).
+//
+// Notes for SQL Server:
+//  - Prisma has no native enums or JSON columns here, so role/status are checked in code and metadata is text.
+//  - Foreign keys use NoAction so SQL Server never complains about multiple cascade paths; accounts are
+//    removed explicitly in code (needed for the in-app "delete my account" requirement).
+//  - Ids use UUID v7: unique, and roughly time-ordered, which keeps the clustered index efficient.
+//  - OTP codes and refresh tokens are never stored: only their one-way hashes.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+}
+
+model User {
+  id          String    @id @default(uuid(7)) @db.UniqueIdentifier
+  mobile      String    @unique @db.VarChar(15) // 10-digit Indian mobile number
+  name        String?   @db.NVarChar(100)
+  email       String?   @db.NVarChar(254)
+  role        String    @default("customer") @db.VarChar(20) // customer | doctor | distributor | moderator | admin
+  status      String    @default("active") @db.VarChar(20) // active | blocked
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
+
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+// One row per OTP sent. Only an HMAC of the code is kept, and a row can be used once.
+model OtpChallenge {
+  id         String    @id @default(uuid(7)) @db.UniqueIdentifier
+  mobile     String    @db.VarChar(15)
+  codeHash   String    @db.Char(64)
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  requestIp  String?   @db.VarChar(64)
+  createdAt  DateTime  @default(now())
+
+  @@index([mobile, createdAt])
+  @@map("otp_challenges")
+}
+
+// A login session. The token itself is random and shown to the app once; only its SHA-256 is stored.
+// Tokens rotate on every refresh and belong to a "family": if an old token is replayed, the whole family is revoked.
+model RefreshToken {
+  id        String    @id @default(uuid(7)) @db.UniqueIdentifier
+  userId    String    @db.UniqueIdentifier
+  tokenHash String    @unique @db.Char(64)
+  familyId  String    @db.UniqueIdentifier
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?   @db.NVarChar(255)
+  ip        String?   @db.VarChar(64)
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+// Security trail: logins, token reuse, profile changes. Never contains OTPs, tokens or health details.
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  userId    String?  @db.UniqueIdentifier
+  action    String   @db.VarChar(64)
+  ip        String?  @db.VarChar(64)
+  userAgent String?  @db.NVarChar(255)
+  metadata  String?  @db.NVarChar(Max)
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}

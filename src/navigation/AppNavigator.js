@@ -23,7 +23,7 @@ import CheckoutScreen from '../screens/shop/CheckoutScreen';
 import OrderSuccessScreen from '../screens/shop/OrderSuccessScreen';
 import OrdersScreen from '../screens/shop/OrdersScreen';
 import WishlistScreen from '../screens/shop/WishlistScreen';
-import CallsScreen from '../screens/CallsScreen';
+import CallsScreen from '../calling/CallsScreen';
 import {useCart} from '../context/CartContext';
 import {colors} from '../theme';
 

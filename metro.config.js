@@ -14,6 +14,8 @@ const config = {
       defaultConfig.resolver.blockList || [],
       // call-backend/ is the Node.js call server, not part of the app bundle
       /[\\/]call-backend[\\/].*/,
+      // backend/ is the Node.js API server, not part of the app bundle
+      /[\\/]backend[\\/].*/,
       // Native build output (the app's and each library's) changes while Gradle builds;
       // scanning it can break Metro's file map, and it never contains app JavaScript
       /[\\/]android[\\/](app[\\/])?(build|\.cxx|\.gradle)[\\/].*/,

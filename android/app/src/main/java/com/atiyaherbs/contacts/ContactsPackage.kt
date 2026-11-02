@@ -1,11 +1,11 @@
-package com.atiyaherbs.calls
+package com.atiyaherbs.contacts
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.uimanager.ViewManager
 
-class CallsPackage : ReactPackage {
+class ContactsPackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
       listOf(ContactPickerModule(reactContext))
 

@@ -25,6 +25,7 @@ function createRecordingService({
   const accessKey = env.R2_ACCESS_KEY_ID || '';
   const secret = env.R2_SECRET_ACCESS_KEY || '';
   const bucket = env.R2_BUCKET || '';
+  const region = env.R2_REGION || 'auto'; // R2 uses 'auto'; Backblaze B2 needs its own, e.g. us-west-004
   const mode = env.RECORDING_MODE === 'video' ? 'video' : 'audio'; // audio is much smaller and cheaper
   // LiveKit's free plan includes about 60 recording minutes a month, so stop a little before that
   const monthlyLimitSeconds = (Number(env.RECORDING_MONTHLY_MINUTES) || 50) * 60;
@@ -54,7 +55,7 @@ function createRecordingService({
         filepath: key,
         output: {
           case: 's3',
-          value: new S3Upload({accessKey, secret, region: 'auto', endpoint, bucket, forcePathStyle: true}),
+          value: new S3Upload({accessKey, secret, region, endpoint, bucket, forcePathStyle: true}),
         },
       });
       const info = await egress.startRoomCompositeEgress(call.room, output, {audioOnly: mode === 'audio'});
@@ -119,36 +120,70 @@ function createRecordingService({
     return 'unknown';
   }
 
-  // The file is now in the R2 staging bucket. If Cloudinary is set up, copy it there and clear R2.
-  // If that fails the file simply stays in R2 and the row says so.
+  // The file is now in the R2 staging bucket. If Cloudinary is set up, compress it, copy it there and clear R2.
+  // If that fails the file simply stays in R2 and the row says so (and it is tried again later).
+  const inProgress = new Set(); // recordings being moved right now, so none is moved twice
   async function moveToCloudinary(id, sizeBytes) {
-    if (!archiver?.available) {
+    if (!archiver?.available || inProgress.has(id)) {
       return;
     }
-    const row = await store.get(id);
-    if (!row?.object_key) {
-      return;
-    }
-    const result = await archiver.archive({
-      bucket: row.bucket,
-      objectKey: row.object_key,
-      callId: row.call_id,
-      sizeBytes,
-    });
-    if (result.ok) {
-      await store.update(id, {
-        destination: 'cloudinary',
-        cloudinary_public_id: result.publicId,
-        cloudinary_resource_type: result.resourceType,
-        cloudinary_delivery_type: result.deliveryType,
-        size_bytes: result.bytes || sizeBytes,
+    inProgress.add(id);
+    try {
+      const row = await store.get(id);
+      if (!row?.object_key) {
+        return;
+      }
+      const result = await archiver.archive({
+        bucket: row.bucket,
+        objectKey: row.object_key,
+        callId: row.call_id,
+        sizeBytes,
+        mode: row.mode,
       });
-    } else {
-      await store.update(id, {error: `Cloudinary copy failed (${result.error}); the file is still in R2`});
+      if (result.ok) {
+        await store.update(id, {
+          destination: 'cloudinary',
+          cloudinary_public_id: result.publicId,
+          cloudinary_resource_type: result.resourceType,
+          cloudinary_delivery_type: result.deliveryType,
+          size_bytes: result.bytes || sizeBytes,
+          original_size_bytes: sizeBytes ?? null,
+          compressed: result.compressed ? 1 : 0,
+          error: null,
+        });
+        log(`recording ${id} stored in Cloudinary (${sizeBytes ?? '?'} -> ${result.bytes ?? '?'} bytes${result.compressed ? ', compressed' : ''})`);
+      } else {
+        await store.update(id, {error: `Cloudinary copy failed (${result.error}); the file is still in R2`});
+      }
+    } finally {
+      inProgress.delete(id);
     }
   }
 
-  return {available, mode, destination: archiver?.available ? 'cloudinary' : 'r2', start, stopAndFinish, monthKey};
+  // Safety net: finished recordings still sitting in R2 (the server restarted in the middle, or Cloudinary was
+  // down) are moved now. Run at start-up and every few minutes. Returns how many it handled.
+  async function retryPendingArchives() {
+    if (!archiver?.available) {
+      return 0;
+    }
+    const ids = await store.listPendingArchive();
+    for (const id of ids) {
+      const row = await store.get(id);
+      await moveToCloudinary(id, row?.size_bytes ?? undefined);
+    }
+    return ids.length;
+  }
+
+  return {
+    available,
+    mode,
+    destination: archiver?.available ? 'cloudinary' : 'r2',
+    compression: !!(archiver?.available && archiver.compression),
+    start,
+    stopAndFinish,
+    retryPendingArchives,
+    monthKey,
+  };
 }
 
 // The real LiveKit client; tests pass a fake instead

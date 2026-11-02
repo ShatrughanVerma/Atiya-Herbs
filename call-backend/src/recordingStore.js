@@ -23,6 +23,8 @@ const SCHEMA = [
     cloudinary_resource_type TEXT,
     cloudinary_delivery_type TEXT,
     size_bytes INTEGER,
+    original_size_bytes INTEGER,
+    compressed INTEGER,
     duration_seconds INTEGER,
     started_at TEXT,
     ended_at TEXT,
@@ -39,6 +41,8 @@ const MIGRATIONS = [
   'ALTER TABLE call_recordings ADD COLUMN cloudinary_public_id TEXT',
   'ALTER TABLE call_recordings ADD COLUMN cloudinary_resource_type TEXT',
   'ALTER TABLE call_recordings ADD COLUMN cloudinary_delivery_type TEXT',
+  'ALTER TABLE call_recordings ADD COLUMN original_size_bytes INTEGER',
+  'ALTER TABLE call_recordings ADD COLUMN compressed INTEGER',
 ];
 
 const COLUMNS = [
@@ -59,6 +63,8 @@ const COLUMNS = [
   'cloudinary_resource_type',
   'cloudinary_delivery_type',
   'size_bytes',
+  'original_size_bytes',
+  'compressed',
   'duration_seconds',
   'started_at',
   'ended_at',
@@ -90,6 +96,14 @@ class MemoryStore {
 
   async get(id) {
     return this.rows.get(id) || null;
+  }
+
+  // Finished recordings that are still only in R2 and are worth another try (not the ones Cloudinary can never take)
+  async listPendingArchive(limit = 20) {
+    return [...this.rows.values()]
+      .filter(row => row.status === 'complete' && row.destination === 'r2' && !row.cloudinary_public_id && !(row.error || '').includes('too-large'))
+      .slice(0, limit)
+      .map(row => row.id);
   }
 
   async secondsRecordedInMonth(month = monthKey()) {
@@ -161,6 +175,14 @@ class D1Store {
   async get(id) {
     const rows = await this.query('SELECT * FROM call_recordings WHERE id = ?', [id]);
     return rows[0] || null;
+  }
+
+  async listPendingArchive(limit = 20) {
+    const rows = await this.query(
+      "SELECT id FROM call_recordings WHERE status = 'complete' AND destination = 'r2' AND cloudinary_public_id IS NULL AND (error IS NULL OR error NOT LIKE '%too-large%') ORDER BY created_at LIMIT ?",
+      [limit],
+    );
+    return rows.map(row => row.id);
   }
 
   async secondsRecordedInMonth(month = monthKey()) {

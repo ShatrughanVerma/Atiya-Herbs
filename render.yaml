@@ -27,6 +27,9 @@ services:
         sync: false
       - key: R2_BUCKET
         sync: false
+      # Leave empty for Cloudflare R2; for Backblaze B2 use its region, e.g. us-west-004
+      - key: R2_REGION
+        sync: false
       - key: CF_ACCOUNT_ID
         sync: false
       - key: D1_DATABASE_ID
@@ -44,3 +47,8 @@ services:
         sync: false
       - key: CLOUDINARY_DELIVERY_TYPE
         value: authenticated
+      # Shrink each recording after the call ends (ffmpeg is in the Docker image)
+      - key: RECORDING_COMPRESS
+        value: "true"
+      - key: RECORDING_AUDIO_BITRATE
+        value: 24k

@@ -15,16 +15,16 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import Avatar from '../components/Avatar';
+import Avatar from './Avatar';
 import EmptyState from '../components/shop/EmptyState';
 import ScreenHeader from '../components/shop/ScreenHeader';
 import { useAuth } from '../context/AuthContext';
-import { useCall } from '../context/CallContext';
+import { useCall } from './CallContext';
 import {
   isContactPickerAvailable,
   pickContactNumber,
-} from '../utils/contactPicker';
-import { formatMobile, normalizeMobile } from '../utils/phone';
+} from './contactPicker';
+import { formatMobile, normalizeMobile } from './phone';
 import { colors, spacing } from '../theme';
 
 // WhatsApp-style Calls list: recent calls with direction and time, tap the phone / camera icon to
