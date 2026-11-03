@@ -63,6 +63,40 @@ const FAIL = ['-e', "process.stdin.resume(); process.stdin.on('end', () => { con
     await assert.rejects(finished, /exited with code 3: bad input/);
   });
 
+  // The stand-in is given a real file path (not a pipe) and upper-cases its content, like ffmpeg reading a seekable MP4.
+  const READ_FILE = file => ['-e', "process.stdout.write(require('fs').readFileSync(process.argv[1]).toString().toUpperCase())", file];
+
+  test('a video is saved to a temporary file first, because ffmpeg cannot read an MP4 index from a pipe', async () => {
+    let seenFile;
+    const compressor = createCompressor({
+      command: process.execPath,
+      buildVideoArgs: file => {
+        seenFile = file;
+        return READ_FILE(file);
+      },
+    });
+    const {output, finished} = compressor.compress(Readable.from([Buffer.from('mp4 '), Buffer.from('bytes')]), 'video');
+    assert.equal(await collect(output), 'MP4 BYTES');
+    await finished;
+    assert.ok(seenFile && !seenFile.startsWith('pipe:'));
+    assert.equal(require('node:fs').existsSync(seenFile), false); // temp file removed afterwards
+  });
+
+  test('a failed video compression is reported and its temporary file is removed', async () => {
+    let seenFile;
+    const compressor = createCompressor({
+      command: process.execPath,
+      buildVideoArgs: file => {
+        seenFile = file;
+        return ['-e', "console.error('moov atom not found'); process.exit(1)"];
+      },
+    });
+    const {output, finished} = compressor.compress(Readable.from([Buffer.from('x')]), 'video');
+    output.resume();
+    await assert.rejects(finished, /exited with code 1: moov atom not found/);
+    assert.equal(require('node:fs').existsSync(seenFile), false);
+  });
+
   test('reports a program that is not installed, without crashing', async () => {
     const compressor = createCompressor({command: 'definitely-not-ffmpeg-xyz'});
     const {output, finished} = compressor.compress(Readable.from([Buffer.from('x')]), 'audio');
@@ -161,6 +195,37 @@ test('if compression fails half-way, the incomplete upload is removed and the or
   assert.match(cloudinary.destroyed[0], /^atiyaherbs\/call-recordings\/c1-/);
   assert.equal(cloudinary.uploads.at(-1).body, 'ogg-bytes'); // the untouched original
   assert.deepEqual(s3.sent, ['GetObjectCommand', 'GetObjectCommand', 'DeleteObjectCommand']);
+});
+
+test('RECORDING_COMPRESS=cloudinary: a video is uploaded as it is with a Cloudinary incoming transformation, no ffmpeg', async () => {
+  const cloudinary = fakeCloudinary();
+  const env = {...ENV, RECORDING_COMPRESS: 'cloudinary'};
+  const archiver = createCloudinaryArchiver({env, s3: fakeS3(), cloudinary, compressor: createCompressor({env, command: 'definitely-not-ffmpeg-xyz'})});
+
+  assert.equal(archiver.compression, true);
+  const result = await archiver.archive({...ARGS, mode: 'video'});
+  assert.deepEqual([result.ok, result.compressed], [true, true]);
+  assert.equal(cloudinary.uploads[0].body, 'ogg-bytes'); // sent untouched; Cloudinary shrinks it
+  assert.deepEqual(cloudinary.uploads[0].options.transformation, [{width: 640, crop: 'limit', quality: 'auto:low', video_codec: 'h264'}]);
+});
+
+test('RECORDING_COMPRESS=cloudinary: audio is left alone, and a video falls back to the original if Cloudinary refuses the transformation', async () => {
+  const env = {...ENV, RECORDING_COMPRESS: 'cloudinary'};
+  const audioCloudinary = fakeCloudinary();
+  const audio = createCloudinaryArchiver({env, s3: fakeS3(), cloudinary: audioCloudinary});
+  const audioResult = await audio.archive({...ARGS, mode: 'audio'});
+  assert.deepEqual([audioResult.ok, audioResult.compressed], [true, false]);
+  assert.equal(audioCloudinary.uploads[0].options.transformation, undefined);
+
+  const picky = fakeCloudinary();
+  const realUpload = picky.uploader.upload_stream;
+  picky.uploader.upload_stream = (options, callback) =>
+    options.transformation ? new Writable({write: (c, e, done) => done(), final: done => { callback(new Error('invalid transformation')); done(); }}) : realUpload(options, callback);
+  const logs = [];
+  const video = createCloudinaryArchiver({env, s3: fakeS3(), cloudinary: picky, log: m => logs.push(m)});
+  const videoResult = await video.archive({...ARGS, mode: 'video'});
+  assert.deepEqual([videoResult.ok, videoResult.compressed], [true, false]);
+  assert.match(logs[0], /Cloudinary could not compress the recording \(invalid transformation\)/);
 });
 
 test('without ffmpeg installed, the original recording is stored instead of losing it', async () => {

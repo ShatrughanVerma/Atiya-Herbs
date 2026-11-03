@@ -26,6 +26,13 @@ function createCloudinaryArchiver({env = process.env, s3 = null, cloudinary = cl
   // Cloudinary's free plan allows videos up to 100 MB per file
   const maxBytes = (Number(env.CLOUDINARY_MAX_MB) || 100) * 1024 * 1024;
   const keepStagingCopy = env.RECORDING_KEEP_R2_COPY === 'true';
+  // RECORDING_COMPRESS=cloudinary: the original is uploaded as it is and Cloudinary shrinks a video while saving it
+  // (an "incoming transformation": only the small version is kept). Audio is already tiny, so it is left alone.
+  const cloudinaryCompress = env.RECORDING_COMPRESS === 'cloudinary';
+  const incomingTransformation = mode =>
+    cloudinaryCompress && mode === 'video'
+      ? [{width: 640, crop: 'limit', quality: 'auto:low', video_codec: 'h264'}]
+      : undefined;
 
   if (available) {
     cloudinary.config({cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret, secure: true});
@@ -36,17 +43,24 @@ function createCloudinaryArchiver({env = process.env, s3 = null, cloudinary = cl
       return s3;
     }
     return new S3Client({
-      region: env.R2_REGION || 'auto',
-      endpoint: env.R2_ENDPOINT,
-      credentials: {accessKeyId: env.R2_ACCESS_KEY_ID, secretAccessKey: env.R2_SECRET_ACCESS_KEY},
+      region: (env.R2_REGION || '').trim() || 'auto',
+      endpoint: (env.R2_ENDPOINT || '').trim(),
+      credentials: {
+        accessKeyId: (env.R2_ACCESS_KEY_ID || '').trim(),
+        secretAccessKey: (env.R2_SECRET_ACCESS_KEY || '').trim(),
+      },
       forcePathStyle: true,
     });
   };
 
-  const uploadFrom = (stream, publicId) =>
+  const uploadFrom = (stream, publicId, transformation) =>
     new Promise((resolve, reject) => {
+      const options = {resource_type: 'video', type: deliveryType, folder, public_id: publicId, overwrite: false, use_filename: false};
+      if (transformation) {
+        options.transformation = transformation;
+      }
       const upload = cloudinary.uploader.upload_stream(
-        {resource_type: 'video', type: deliveryType, folder, public_id: publicId, overwrite: false, use_filename: false},
+        options,
         (error, result) => (error ? reject(error) : resolve(result)),
       );
       stream.on('error', reject);
@@ -55,7 +69,7 @@ function createCloudinaryArchiver({env = process.env, s3 = null, cloudinary = cl
 
   // One try at copying the file. With compress=true the bytes go through ffmpeg first. The upload only counts
   // if ffmpeg also ended cleanly: a half-compressed file is deleted from Cloudinary again.
-  async function copyOnce(client, {bucket, objectKey, callId, mode, compress}) {
+  async function copyOnce(client, {bucket, objectKey, callId, mode, compress, transformation}) {
     const object = await client.send(new GetObjectCommand({Bucket: bucket, Key: objectKey}));
     const publicId = `${callId}-${Date.now()}`;
     let source = object.Body;
@@ -63,7 +77,7 @@ function createCloudinaryArchiver({env = process.env, s3 = null, cloudinary = cl
     if (compress) {
       ({output: source, finished} = compressor.compress(object.Body, mode));
     }
-    const [upload, encoder] = await Promise.allSettled([uploadFrom(source, publicId), finished]);
+    const [upload, encoder] = await Promise.allSettled([uploadFrom(source, publicId, transformation), finished]);
     if (encoder.status === 'rejected') {
       if (upload.status === 'fulfilled') {
         await cloudinary.uploader
@@ -95,7 +109,15 @@ function createCloudinaryArchiver({env = process.env, s3 = null, cloudinary = cl
     let uploaded = null;
     let compressed = false;
     try {
-      if (compressor.enabled) {
+      const transformation = incomingTransformation(mode);
+      if (transformation) {
+        try {
+          uploaded = await copyOnce(client, {...args, compress: false, transformation});
+          compressed = true;
+        } catch (e) {
+          log(`Cloudinary could not compress the recording (${e.message}); storing the original recording instead`);
+        }
+      } else if (compressor.enabled) {
         try {
           uploaded = await copyOnce(client, {...args, compress: true});
           compressed = true;
@@ -130,7 +152,7 @@ function createCloudinaryArchiver({env = process.env, s3 = null, cloudinary = cl
     }
   }
 
-  return {available, folder, deliveryType, compression: compressor.enabled, archive};
+  return {available, folder, deliveryType, compression: compressor.enabled || cloudinaryCompress, archive};
 }
 
 module.exports = {createCloudinaryArchiver};

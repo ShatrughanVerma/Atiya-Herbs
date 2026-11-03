@@ -21,11 +21,12 @@ function createRecordingService({
   log = () => {},
   sleepFn = sleep,
 }) {
-  const endpoint = env.R2_ENDPOINT || '';
-  const accessKey = env.R2_ACCESS_KEY_ID || '';
-  const secret = env.R2_SECRET_ACCESS_KEY || '';
-  const bucket = env.R2_BUCKET || '';
-  const region = env.R2_REGION || 'auto'; // R2 uses 'auto'; Backblaze B2 needs its own, e.g. us-west-004
+  // trimmed because a stray space or newline pasted into the dashboard breaks the upload's Authorization header
+  const endpoint = (env.R2_ENDPOINT || '').trim();
+  const accessKey = (env.R2_ACCESS_KEY_ID || '').trim();
+  const secret = (env.R2_SECRET_ACCESS_KEY || '').trim();
+  const bucket = (env.R2_BUCKET || '').trim();
+  const region = (env.R2_REGION || '').trim() || 'auto'; // R2 uses 'auto'; Backblaze B2 needs its own, e.g. us-west-004
   const mode = env.RECORDING_MODE === 'video' ? 'video' : 'audio'; // audio is much smaller and cheaper
   // LiveKit's free plan includes about 60 recording minutes a month, so stop a little before that
   const monthlyLimitSeconds = (Number(env.RECORDING_MONTHLY_MINUTES) || 50) * 60;
