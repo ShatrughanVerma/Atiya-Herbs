@@ -1,5 +1,5 @@
 const {EgressClient} = require('livekit-server-sdk');
-const {EgressStatus, EncodedFileOutput, EncodedFileType, S3Upload} = require('@livekit/protocol');
+const {EgressStatus, EncodedFileOutput, EncodedFileType, EncodingOptions, S3Upload} = require('@livekit/protocol');
 const {monthKey} = require('./recordingStore');
 
 // Call recording. LiveKit Egress records the call's room and uploads the file straight to our
@@ -28,6 +28,20 @@ function createRecordingService({
   const bucket = (env.R2_BUCKET || '').trim();
   const region = (env.R2_REGION || '').trim() || 'auto'; // R2 uses 'auto'; Backblaze B2 needs its own, e.g. us-west-004
   const mode = env.RECORDING_MODE === 'video' ? 'video' : 'audio'; // audio is much smaller and cheaper
+  // Video is recorded small from the start: LiveKit's default is 720p at 30 fps, several MB a minute. The defaults
+  // here (360p, 15 fps, 150 kbit/s video + 32 kbit/s audio) come to about 80 MB an hour, under Cloudinary's
+  // 100 MB free upload limit. Each can be changed with a RECORDING_VIDEO_* / RECORDING_AUDIO_KBPS variable.
+  const number = (value, fallback, min, max) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= min && n <= max ? Math.round(n) : fallback;
+  };
+  const videoEncoding = new EncodingOptions({
+    width: number(env.RECORDING_VIDEO_WIDTH, 640, 160, 1920),
+    height: number(env.RECORDING_VIDEO_HEIGHT, 360, 90, 1080),
+    framerate: number(env.RECORDING_VIDEO_FPS, 15, 5, 30),
+    videoBitrate: number(env.RECORDING_VIDEO_KBPS, 150, 50, 5000),
+    audioBitrate: number(env.RECORDING_AUDIO_KBPS, 32, 16, 128),
+  });
   // LiveKit's free plan includes about 60 recording minutes a month, so stop a little before that
   const monthlyLimitSeconds = (Number(env.RECORDING_MONTHLY_MINUTES) || 50) * 60;
   const pollMs = Number(env.RECORDING_POLL_MS) || 2000;
@@ -59,7 +73,11 @@ function createRecordingService({
           value: new S3Upload({accessKey, secret, region, endpoint, bucket, forcePathStyle: true}),
         },
       });
-      const info = await egress.startRoomCompositeEgress(call.room, output, {audioOnly: mode === 'audio'});
+      const options = {audioOnly: mode === 'audio'};
+      if (mode === 'video') {
+        options.encodingOptions = videoEncoding;
+      }
+      const info = await egress.startRoomCompositeEgress(call.room, output, options);
       await store.insert({
         id: info.egressId,
         call_id: call.id,

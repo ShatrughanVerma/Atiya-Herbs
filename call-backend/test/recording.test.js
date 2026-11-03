@@ -87,6 +87,40 @@ test('recording is offered only when LiveKit and R2 are both set up', async () =
   assert.equal((await join('x')).session.recordingAvailable, false);
 });
 
+test('video recordings ask LiveKit for small output (360p, 15 fps, low bitrate), adjustable and bounded by settings', async () => {
+  const recordOnce = async env => {
+    clients.splice(0).forEach(c => c.disconnect());
+    await new Promise(resolve => server.close(resolve));
+    await start({...ENV, RECORDING_MODE: 'video', ...env});
+    const {a, b, callId} = await connectedCall();
+    await emitAck(a, 'recording:request', {callId});
+    const on = once(a, 'recording:state');
+    b.emit('recording:respond', {callId, allow: true});
+    await on;
+    return egress.started[0].opts;
+  };
+
+  const small = await recordOnce({});
+  assert.equal(small.audioOnly, false);
+  const {width, height, framerate, videoBitrate, audioBitrate} = small.encodingOptions;
+  assert.deepEqual({width, height, framerate, videoBitrate, audioBitrate}, {width: 640, height: 360, framerate: 15, videoBitrate: 150, audioBitrate: 32});
+
+  const tuned = await recordOnce({RECORDING_VIDEO_WIDTH: '480', RECORDING_VIDEO_HEIGHT: '270', RECORDING_VIDEO_KBPS: '100', RECORDING_VIDEO_FPS: 'junk'});
+  assert.deepEqual(
+    [tuned.encodingOptions.width, tuned.encodingOptions.height, tuned.encodingOptions.videoBitrate, tuned.encodingOptions.framerate],
+    [480, 270, 100, 15], // a value that is not a number falls back to the default
+  );
+});
+
+test('audio recordings do not carry video settings', async () => {
+  const {a, b, callId} = await connectedCall();
+  await emitAck(a, 'recording:request', {callId});
+  const on = once(a, 'recording:state');
+  b.emit('recording:respond', {callId, allow: true});
+  await on;
+  assert.equal(egress.started[0].opts.encodingOptions, undefined);
+});
+
 test('nothing is recorded until the other person agrees, then it records to R2 and logs consent', async () => {
   const {a, b, callId} = await connectedCall();
 
