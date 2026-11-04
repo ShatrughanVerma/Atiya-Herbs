@@ -774,7 +774,7 @@ export function CallProvider({ children }) {
       ) {
         return;
       }
-      patch({ status: 'connecting' });
+      patch({ status: 'connecting', provider: payload.provider || 'livekit' });
       try {
         await joinRoom(payload);
       } catch (e) {

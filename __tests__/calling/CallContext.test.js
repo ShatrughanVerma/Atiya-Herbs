@@ -647,6 +647,17 @@ test('an Agora video call shows both cameras, and the camera button and flip but
   expect(api.frontCamera).toBe(false);
 });
 
+test('an Agora call has no Record button even when the server can record, and a LiveKit call keeps it', async () => {
+  const engine = fakeAgoraEngine();
+  const socket = await ringingOutgoingCall(false);
+  await act(() => socket.serverSends('session', { activeCallId: 'c1', recordingAvailable: true }));
+  await act(() => socket.serverSends('call:ready', AGORA_READY));
+  await act(() => engine.handler.onUserJoined({}, 77, 0));
+  expect(api.call.status).toBe('connected');
+  expect(api.recordingAvailable).toBe(true);
+  expect(byLabelOrNull('Record call')).toHaveLength(0);
+});
+
 test('the other person leaving an Agora call ends it, and Agora connection trouble is shown', async () => {
   const engine = fakeAgoraEngine();
   const socket = await ringingOutgoingCall(false);

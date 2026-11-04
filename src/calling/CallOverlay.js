@@ -263,30 +263,33 @@ export default function CallOverlay() {
                       onPress={flipCamera}
                     />
                   )}
-                  {recordingAvailable && call.status === 'connected' && (
-                    <Action
-                      icon={
-                        recording === 'on'
-                          ? 'record-circle'
-                          : 'record-circle-outline'
-                      }
-                      label={
-                        recording === 'on'
-                          ? 'Stop recording'
-                          : recording === 'asking'
-                          ? 'Waiting for them to allow recording'
-                          : 'Record call'
-                      }
-                      active={recording === 'on'}
-                      onPress={
-                        recording === 'on'
-                          ? stopRecording
-                          : recording === 'asking'
-                          ? undefined
-                          : requestRecording
-                      }
-                    />
-                  )}
+                  {/* Recording is built on LiveKit, so a call that runs on Agora cannot be recorded */}
+                  {recordingAvailable &&
+                    call.provider !== 'agora' &&
+                    call.status === 'connected' && (
+                      <Action
+                        icon={
+                          recording === 'on'
+                            ? 'record-circle'
+                            : 'record-circle-outline'
+                        }
+                        label={
+                          recording === 'on'
+                            ? 'Stop recording'
+                            : recording === 'asking'
+                            ? 'Waiting for them to allow recording'
+                            : 'Record call'
+                        }
+                        active={recording === 'on'}
+                        onPress={
+                          recording === 'on'
+                            ? stopRecording
+                            : recording === 'asking'
+                            ? undefined
+                            : requestRecording
+                        }
+                      />
+                    )}
                   <Action
                     icon={muted ? 'microphone-off' : 'microphone'}
                     label={muted ? 'Unmute' : 'Mute'}
