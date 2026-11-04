@@ -49,6 +49,7 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
       callProviderMode: tokens.mode || 'livekit',
       livekitUp: tokens.livekitUp, // in auto mode: did LiveKit answer at the last check
       recordingAvailable: recording.available,
+      recordingMode: recording.mode, // audio or video, so it is easy to see what the server is really using
       recordingDestination: recording.destination,
       recordingCompression: recording.compression,
       recordingDetailsStore: store.kind,

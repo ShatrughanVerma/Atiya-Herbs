@@ -47,8 +47,9 @@ services:
         sync: false
       - key: CF_API_TOKEN
         sync: false
+      # audio or video. Set in Render's dashboard (not here), so a push does not change it back.
       - key: RECORDING_MODE
-        value: audio
+        sync: false
       # Store recordings in Cloudinary (optional); R2 above is then only a short staging area
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
@@ -59,7 +60,8 @@ services:
       - key: CLOUDINARY_DELIVERY_TYPE
         value: authenticated
       # Shrink each recording after the call ends (ffmpeg is in the Docker image)
+      # true, false, or cloudinary (Cloudinary shrinks a video itself). Also set in the dashboard.
       - key: RECORDING_COMPRESS
-        value: "true"
+        sync: false
       - key: RECORDING_AUDIO_BITRATE
-        value: 24k
+        sync: false
