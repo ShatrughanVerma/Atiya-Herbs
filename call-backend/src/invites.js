@@ -11,7 +11,12 @@ const express = require('express');
 //   POST /agora/join/<code>     {name} -> what the page needs to join (App ID, channel, token)
 //
 // There are no verified logins yet, so making an invite is protected by a secret key kept on the server (INVITE_KEY),
-// and a link is a long random code that stops working after a while and can only be used a few times.
+// and a link stops working after a while and can only be used a few times.
+//
+// A link's code is signed with INVITE_KEY and carries its own room, role and expiry, so the server remembers nothing
+// about it: a link keeps working after the server restarts or wakes up from sleep (Render's free plan does both).
+// Only the "used a few times" count is kept in memory, so it starts again after a restart. Changing INVITE_KEY
+// makes every link made before it stop working.
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'joinPage.html'), 'utf8');
 
@@ -25,7 +30,7 @@ function createInvites({env = process.env, agora, now = () => Date.now()}) {
   const key = (env.INVITE_KEY || '').trim();
   const ttlMs = (Number(env.INVITE_MINUTES) || 60) * 60_000;
   const maxJoins = Number(env.INVITE_MAX_JOINS) || 4; // per link, so a refresh or a dropped connection can rejoin
-  const byCode = new Map(); // code -> {room, role, expiresAt, joins}
+  const joins = new Map(); // code -> {count, expiresAt}: how many times each link was used (in memory only)
   const hits = new Map(); // ip -> request times, to slow down guessing and abuse
 
   const tooMany = (ip, limit, windowMs) => {
@@ -37,9 +42,9 @@ function createInvites({env = process.env, agora, now = () => Date.now()}) {
   };
   const sweep = () => {
     const t = now();
-    for (const [code, invite] of byCode) {
-      if (invite.expiresAt < t) {
-        byCode.delete(code);
+    for (const [code, used] of joins) {
+      if (used.expiresAt < t) {
+        joins.delete(code);
       }
     }
     for (const [ip, times] of hits) {
@@ -47,6 +52,31 @@ function createInvites({env = process.env, agora, now = () => Date.now()}) {
         hits.delete(ip);
       }
     }
+  };
+
+  const sign = text => crypto.createHmac('sha256', key).update(text).digest('base64url');
+  // code = <payload>.<signature>, where payload is "room|role|expiresAt"
+  const makeCode = (room, role, expiresAt) => {
+    const payload = Buffer.from(`${room}|${role}|${expiresAt}`).toString('base64url');
+    return `${payload}.${sign(payload)}`;
+  };
+  // The invite a code stands for, or null when it was not made by this server's key (or was changed)
+  const readCode = code => {
+    const parts = String(code || '').split('.');
+    if (!key || parts.length !== 2) {
+      return null;
+    }
+    const [payload, signature] = parts;
+    const expected = Buffer.from(sign(payload));
+    const given = Buffer.from(signature);
+    if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) {
+      return null;
+    }
+    const [room, role, expiresAt] = Buffer.from(payload, 'base64url').toString().split('|');
+    if (!/^meet-[0-9a-f-]{36}$/.test(room) || !['host', 'guest'].includes(role) || !Number.isFinite(Number(expiresAt))) {
+      return null;
+    }
+    return {room, role, expiresAt: Number(expiresAt)};
   };
 
   const router = express.Router();
@@ -68,9 +98,7 @@ function createInvites({env = process.env, agora, now = () => Date.now()}) {
     const origin = (env.PUBLIC_URL || `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     const out = {room, expiresAt: new Date(expiresAt).toISOString()};
     for (const role of ['host', 'guest']) {
-      const code = crypto.randomBytes(18).toString('base64url'); // 144 bits: not guessable
-      byCode.set(code, {room, role, expiresAt, joins: 0});
-      out[role] = {url: `${origin}/join/${code}`};
+      out[role] = {url: `${origin}/join/${makeCode(room, role, expiresAt)}`};
     }
     res.status(201).json(out);
   });
@@ -84,31 +112,32 @@ function createInvites({env = process.env, agora, now = () => Date.now()}) {
     if (tooMany(`join:${req.ip}`, 30, 10 * 60_000)) {
       return res.status(429).json({error: 'slow-down'});
     }
-    const invite = byCode.get(req.params.code);
+    const invite = readCode(req.params.code);
     if (!invite) {
       return res.status(404).json({error: 'not-found'});
     }
     if (invite.expiresAt < now()) {
-      byCode.delete(req.params.code);
       return res.status(410).json({error: 'expired'});
     }
-    if (invite.joins >= maxJoins) {
+    const used = joins.get(req.params.code) || {count: 0, expiresAt: invite.expiresAt};
+    if (used.count >= maxJoins) {
       return res.status(403).json({error: 'used-up'});
     }
     const name = String(req.body?.name || '').trim().slice(0, 40) || (invite.role === 'host' ? 'Host' : 'Guest');
-    invite.joins += 1;
+    used.count += 1;
+    joins.set(req.params.code, used);
     try {
       // a new account for each join, so two people never share one, and a rejoin is not mistaken for the first
       const account = `${invite.role === 'host' ? 'h' : 'g'}-${crypto.randomBytes(6).toString('hex')}`;
       const join = await agora.issue({identity: account, room: invite.room});
       res.set('Cache-Control', 'no-store').json({...join, name, role: invite.role});
     } catch {
-      invite.joins -= 1;
+      used.count -= 1;
       res.status(500).json({error: 'token-failed'});
     }
   });
 
-  return {router, size: () => byCode.size};
+  return {router};
 }
 
 module.exports = {createInvites};

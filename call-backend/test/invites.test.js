@@ -43,7 +43,7 @@ test('invites are switched off until both Agora and the key are set up', async (
 test('an invite gives a host link and a guest link for the same room, using long random codes', async () => {
   const invite = await (await createInvite()).json();
   assert.match(invite.room, /^meet-/);
-  assert.match(invite.host.url, /^https:\/\/calls\.example\.com\/join\/[\w-]{24}$/);
+  assert.match(invite.host.url, /^https:\/\/calls\.example\.com\/join\/[\w-]+\.[\w-]{43}$/);
   assert.notEqual(invite.host.url, invite.guest.url);
   const other = await (await createInvite()).json();
   assert.notEqual(codeOf(other.host), codeOf(invite.host));
@@ -78,7 +78,34 @@ test('an unknown, expired or used-up link is refused', async () => {
 
   clock += 61 * 60_000;
   assert.equal((await post(`/agora/join/${codeOf(invite.host)}`, {})).status, 410); // expired
-  assert.equal((await post(`/agora/join/${codeOf(invite.host)}`, {})).status, 404); // and then forgotten
+  assert.equal((await post(`/agora/join/${codeOf(invite.host)}`, {})).status, 410); // and stays expired
+});
+
+test('a link that was changed, or made with another key, is refused', async () => {
+  const invite = await (await createInvite()).json();
+  const code = codeOf(invite.guest);
+  const [payload, signature] = code.split('.');
+  const flip = text => text.slice(0, -1) + (text.endsWith('A') ? 'B' : 'A');
+  const hostPayload = Buffer.from(Buffer.from(payload, 'base64url').toString().replace('|guest|', '|host|')).toString('base64url');
+  for (const bad of [`${payload}.${flip(signature)}`, `${flip(payload)}.${signature}`, `${hostPayload}.${signature}`, payload, `${code}.x`, '', '.']) {
+    assert.equal((await post(`/agora/join/${encodeURIComponent(bad)}`, {})).status, 404, bad);
+  }
+
+  await new Promise(resolve => server.close(resolve));
+  await start({...ENV, INVITE_KEY: 'a-different-key-that-is-also-long-enough'});
+  assert.equal((await post(`/agora/join/${code}`, {})).status, 404);
+});
+
+test('a link keeps working after the server restarts or wakes up (nothing is remembered on the server)', async () => {
+  const invite = await (await createInvite()).json();
+  const code = codeOf(invite.guest);
+  assert.equal((await post(`/agora/join/${code}`, {name: 'Asha'})).status, 200);
+
+  await new Promise(resolve => server.close(resolve));
+  await start(); // a fresh server with the same key
+  const again = await post(`/agora/join/${code}`, {name: 'Asha'});
+  assert.equal(again.status, 200);
+  assert.equal((await again.json()).channel, invite.room);
 });
 
 test('too many attempts from one address are slowed down', async () => {
