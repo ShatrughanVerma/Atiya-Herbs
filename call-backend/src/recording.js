@@ -234,7 +234,6 @@ function createRecordingService({
   return {
     available,
     mode,
-    chunked,
     destination: archiver?.available ? 'cloudinary' : 'r2',
     compression: !!(archiver?.available && archiver.compression),
     start,

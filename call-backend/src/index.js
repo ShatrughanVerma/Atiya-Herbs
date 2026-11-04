@@ -3,7 +3,8 @@ const os = require('node:os');
 const express = require('express');
 const {Server} = require('socket.io');
 const {attachSignaling} = require('./signaling');
-const {createTokenIssuer} = require('./livekitToken');
+const {createProviders} = require('./providers');
+const {createInvites} = require('./invites');
 const {createRecordingStore} = require('./recordingStore');
 const {createEgressClient, createRecordingService} = require('./recording');
 const {createCloudinaryArchiver} = require('./cloudinaryArchive');
@@ -15,14 +16,14 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
 
   const server = http.createServer(app);
   const io = new Server(server, {maxHttpBufferSize: 16 * 1024, pingInterval: 10000, pingTimeout: 10000});
-  const tokens = createTokenIssuer(env);
+  const tokens = createProviders(env);
   const store = overrides.store || createRecordingStore(env, log);
   const recording = createRecordingService({
     env,
     store,
     egress: overrides.egress || createEgressClient(env),
     archiver: overrides.archiver || createCloudinaryArchiver({env, log}),
-    livekitConfigured: tokens.configured,
+    livekitConfigured: tokens.livekitConfigured,
     log,
   });
 
@@ -34,11 +35,17 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
     log,
   });
 
+  // Call links that work in a browser without the app (Agora, independent of the app's own calling)
+  const invites = createInvites({env, agora: tokens.agora, now: overrides.now});
+  app.use(invites.router);
+
   // Open http://<PC IP>:4000/health in a browser to check the server is up and LiveKit is set
   app.get('/health', (req, res) => {
     res.json({
       ok: true,
-      livekitConfigured: tokens.configured,
+      livekitConfigured: tokens.livekitConfigured,
+      agoraConfigured: tokens.agoraConfigured,
+      callProvider: tokens.provider, // which one new calls use (CALL_PROVIDER)
       recordingAvailable: recording.available,
       recordingDestination: recording.destination,
       recordingCompression: recording.compression,
@@ -76,8 +83,9 @@ if (require.main === module) {
     console.log(
       `  Call recording: ${recording.available ? `on (${recording.mode} only, stored in ${recording.destination}${recording.compression ? ', compressed' : ''})` : 'off (needs Cloudflare R2 settings)'}`,
     );
+    console.log(`  Calls use: ${tokens.provider}${tokens.agoraConfigured ? '' : ' (Agora not set up)'}`);
     if (!tokens.configured) {
-      console.warn('  LiveKit is NOT configured: fill LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env');
+      console.warn('  Calling is NOT configured: fill LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET (or the AGORA_* values) in .env');
     }
   });
 }

@@ -12,7 +12,8 @@ const crypto = require('node:crypto');
 //   session       {activeCallId}                    on every (re)connect
 //   users         [{id, name, busy}]                everyone online
 //   call:incoming {callId, from: {id, name}, video}
-//   call:ready    {callId, serverUrl, token}        both people, after accept: join the LiveKit room
+//   call:ready    {callId, provider, ...}           both people, after accept: join the call. LiveKit sends
+//                                                   {serverUrl, token}; Agora sends {appId, channel, account, token}
 //   call:ended    {callId, reason: 'rejected'|'cancelled'|'no-answer'|'ended'|'disconnected'}
 //
 // Recording (only during a connected call, and only after the OTHER person agrees)
@@ -132,7 +133,8 @@ function attachSignaling(
         return reply({ok: false, error: 'busy'});
       }
       const id = crypto.randomUUID();
-      const call = {id, room: `call-${id}`, caller: me, callee: to, video: !!payload.video, state: 'ringing'};
+      // The provider is fixed for the whole call, so both people join through the same one
+      const call = {id, room: `call-${id}`, caller: me, callee: to, video: !!payload.video, state: 'ringing', provider: tokens.provider};
       call.ringTimer = setTimeout(() => endCall(id, 'no-answer'), ringTimeoutMs);
       calls.set(id, call);
       user.callId = id;
@@ -154,8 +156,8 @@ function attachSignaling(
         // Each person gets their own token, made for this call's room only
         for (const userId of [call.caller, call.callee]) {
           const person = users.get(userId);
-          const token = await tokens.issue({identity: userId, name: person?.name || userId, room: call.room});
-          emitTo(userId, 'call:ready', {callId: call.id, serverUrl: tokens.serverUrl, token});
+          const join = await tokens.issue(call.provider, {identity: userId, name: person?.name || userId, room: call.room});
+          emitTo(userId, 'call:ready', {callId: call.id, ...join});
         }
       } catch (e) {
         log(`could not create call tokens: ${e.message}`);
@@ -190,7 +192,8 @@ function attachSignaling(
       if (!call || call.state !== 'active') {
         return reply({ok: false, error: 'not-active'});
       }
-      if (!recording.available) {
+      // Recording is built on LiveKit Egress, so a call that runs on Agora cannot be recorded yet
+      if (!recording.available || call.provider !== 'livekit') {
         return reply({ok: false, error: 'unavailable'});
       }
       if (call.recording) {
@@ -261,4 +264,4 @@ function attachSignaling(
   return {users, calls};
 }
 
-module.exports = {attachSignaling, normalizeId};
+module.exports = {attachSignaling};

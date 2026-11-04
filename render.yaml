@@ -18,6 +18,17 @@ services:
         sync: false
       - key: LIVEKIT_API_SECRET
         sync: false
+      # Agora as a second calling provider (optional). CALL_PROVIDER picks which one new calls use: livekit (default)
+      # or agora. Agora calls cannot be recorded yet (recording is built on LiveKit).
+      - key: CALL_PROVIDER
+        sync: false
+      - key: AGORA_APP_ID
+        sync: false
+      - key: AGORA_APP_CERTIFICATE
+        sync: false
+      # Call links that open in a browser (Agora). Making a link needs this secret in the x-invite-key header.
+      - key: INVITE_KEY
+        sync: false
       # Call recording (optional, see docs/CALL_RECORDING.md). Leave empty to switch recording off.
       - key: R2_ENDPOINT
         sync: false
