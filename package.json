@@ -12,6 +12,7 @@
   "dependencies": {
     "@livekit/react-native": "^3.1.0",
     "@livekit/react-native-webrtc": "^150.1.1",
+    "@react-native-async-storage/async-storage": "2.1.2",
     "@react-native-community/geolocation": "^3.4.0",
     "@react-native-google-signin/google-signin": "^16.1.5",
     "@react-navigation/bottom-tabs": "^7.21.0",

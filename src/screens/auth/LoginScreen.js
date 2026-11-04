@@ -19,23 +19,13 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useAuth} from '../../context/AuthContext';
 import {colors, spacing} from '../../theme';
 import {isGoogleSignInConfigured, signInWithGoogle} from '../../utils/googleAuth';
+import {isEmail, PASSWORD_MAX, validateLogin} from '../../utils/validators';
 
 // Matched to the Atiya Herbs login design (same look as the sign-up screen)
 const GREEN = '#125A35';
 const GREY = '#5F6A62';
 const INPUT_BORDER = '#C5CCC7';
 const PLACEHOLDER = '#8A938D';
-
-const validate = ({username, password}) => {
-  const errors = {};
-  if (!username.trim()) {
-    errors.username = 'Please enter your email or username';
-  }
-  if (!password) {
-    errors.password = 'Please enter your password';
-  }
-  return errors;
-};
 
 function Field({error, children}) {
   return (
@@ -59,14 +49,14 @@ export default function LoginScreen({navigation}) {
   };
 
   const onLogin = () => {
-    const found = validate(form);
+    const found = validateLogin(form);
     setErrors(found);
     if (Object.keys(found).length > 0) {
       return;
     }
     // TODO: verify credentials with the store's customer login
     const username = form.username.trim();
-    signIn({name: username, email: username.includes('@') ? username : '', provider: 'email'});
+    signIn({name: username, email: isEmail(username) ? username : '', provider: 'email'});
     navigation.replace('Main');
   };
 
@@ -128,10 +118,12 @@ export default function LoginScreen({navigation}) {
               <Field error={errors.username}>
                 <TextInput
                   style={styles.input}
-                  placeholder="Email or username"
+                  placeholder="Email, mobile or username"
                   placeholderTextColor={PLACEHOLDER}
                   autoCapitalize="none"
                   autoComplete="username"
+                  autoCorrect={false}
+                  maxLength={254}
                   keyboardType="email-address"
                   returnKeyType="next"
                   value={form.username}
@@ -147,6 +139,7 @@ export default function LoginScreen({navigation}) {
                   autoCapitalize="none"
                   autoComplete="password"
                   secureTextEntry={!showPassword}
+                  maxLength={PASSWORD_MAX}
                   returnKeyType="done"
                   onSubmitEditing={onLogin}
                   value={form.password}

@@ -19,29 +19,13 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useAuth} from '../../context/AuthContext';
 import {colors, spacing} from '../../theme';
 import {isGoogleSignInConfigured, signInWithGoogle} from '../../utils/googleAuth';
+import {PASSWORD_MAX, validateSignUp} from '../../utils/validators';
 
 // Matched to the Atiya Herbs sign-up design
 const GREEN = '#125A35';
 const GREY = '#5F6A62';
 const INPUT_BORDER = '#C5CCC7';
 const PLACEHOLDER = '#8A938D';
-
-const validate = ({name, email, password, mobile}) => {
-  const errors = {};
-  if (name.trim().length < 2) {
-    errors.name = 'Please enter your full name';
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-    errors.email = 'Please enter a valid email';
-  }
-  if (password.length < 8 || password.length > 64) {
-    errors.password = 'Password must be 8–64 characters';
-  }
-  if (!/^[6-9][0-9]{9}$/.test(mobile)) {
-    errors.mobile = 'Please enter a valid 10-digit mobile number';
-  }
-  return errors;
-};
 
 function Field({error, children, style}) {
   return (
@@ -85,7 +69,7 @@ export default function SignUpScreen({navigation}) {
   };
 
   const onSignUp = () => {
-    const found = validate(form);
+    const found = validateSignUp(form);
     setErrors(found);
     if (Object.keys(found).length > 0) {
       return;
@@ -127,6 +111,7 @@ export default function SignUpScreen({navigation}) {
                   placeholderTextColor={PLACEHOLDER}
                   autoCapitalize="words"
                   autoComplete="name"
+                  maxLength={60}
                   value={form.name}
                   onChangeText={v => update('name', v)}
                 />
@@ -139,6 +124,8 @@ export default function SignUpScreen({navigation}) {
                   placeholderTextColor={PLACEHOLDER}
                   autoCapitalize="none"
                   autoComplete="email"
+                  autoCorrect={false}
+                  maxLength={254}
                   keyboardType="email-address"
                   value={form.email}
                   onChangeText={v => update('email', v)}
@@ -148,12 +135,12 @@ export default function SignUpScreen({navigation}) {
               <Field error={errors.password}>
                 <TextInput
                   style={styles.input}
-                  placeholder="Password (8-64 characters)"
+                  placeholder="Password (letters + numbers, 8-64)"
                   placeholderTextColor={PLACEHOLDER}
                   autoCapitalize="none"
                   autoComplete="new-password"
                   secureTextEntry={!showPassword}
-                  maxLength={64}
+                  maxLength={PASSWORD_MAX}
                   value={form.password}
                   onChangeText={v => update('password', v)}
                 />

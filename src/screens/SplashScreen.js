@@ -1,19 +1,29 @@
-import React, {useEffect, useRef} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {ActivityIndicator, Animated, Image, StyleSheet, Text, View} from 'react-native';
+import {useAuth} from '../context/AuthContext';
 import {colors} from '../theme';
 
 export default function SplashScreen({navigation}) {
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.85)).current;
+  const {user, ready} = useAuth();
+  const [shownLongEnough, setShownLongEnough] = useState(false);
 
   useEffect(() => {
     Animated.parallel([
       Animated.timing(opacity, {toValue: 1, duration: 800, useNativeDriver: true}),
       Animated.spring(scale, {toValue: 1, useNativeDriver: true}),
     ]).start();
-    const timer = setTimeout(() => navigation.replace('Onboarding'), 2500);
+    const timer = setTimeout(() => setShownLongEnough(true), 2500);
     return () => clearTimeout(timer);
-  }, [navigation, opacity, scale]);
+  }, [opacity, scale]);
+
+  // Once the saved login has been read: a returning customer goes straight in, a new one sees the intro
+  useEffect(() => {
+    if (shownLongEnough && ready) {
+      navigation.replace(user ? 'Main' : 'Onboarding');
+    }
+  }, [shownLongEnough, ready, user, navigation]);
 
   return (
     <View style={styles.container}>

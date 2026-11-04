@@ -11,6 +11,11 @@ jest.mock('@livekit/react-native', () => ({
   VideoTrack: 'VideoTrack',
 }));
 
+// AsyncStorage needs the phone's native storage; this keeps it in memory for tests
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);
+
 jest.mock('livekit-client', () => ({
   Room: class {},
   RoomEvent: {},
