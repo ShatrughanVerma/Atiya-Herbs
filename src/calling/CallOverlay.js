@@ -5,9 +5,13 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import CallVideo from './CallVideo';
 import Avatar from './Avatar';
@@ -29,6 +33,45 @@ const formatDuration = ms => {
   const clock = `${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
   return hours ? `${hours}:${clock}` : clock;
 };
+
+const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+
+// Every size on the call screen comes from here, so it fits a small phone, a big phone, a tablet and a phone
+// turned sideways. The controls are drawn at most MAX_CONTENT wide (so on a tablet they stay in one comfortable
+// column) and the buttons shrink until all of them fit in one row.
+const MAX_CONTENT = 560;
+export function callMetrics({ width, height, insets = {}, actionCount = 4 }) {
+  const landscape = width > height;
+  const short = Math.min(width, height);
+  const scale = clamp(short / 390, 0.85, 1.2);
+  const contentWidth = Math.min(width, MAX_CONTENT);
+  const inner = contentWidth - 40; // the panel has 20 of padding on each side
+  const endSize = Math.round(64 * scale);
+  const actionSize = Math.floor(
+    clamp((inner - endSize) / actionCount - 4, 40, 56 * scale),
+  );
+  const selfShort = Math.round(clamp(short * 0.27, 84, 150));
+  const selfLong = Math.round(selfShort * 1.45);
+  return {
+    landscape,
+    scale,
+    contentWidth,
+    actionSize,
+    endSize,
+    bigSize: Math.round(clamp(72 * scale, 64, 84)),
+    avatar: Math.round(
+      landscape ? clamp(height * 0.3, 72, 120) : clamp(width * 0.45, 110, 200),
+    ),
+    nameSize: Math.round(28 * clamp(scale, 0.9, 1.15)),
+    headerTop: landscape ? 8 : 28,
+    panelBottom: landscape ? 14 : 28,
+    incomingBottom: landscape ? 20 : 56,
+    selfWidth: landscape ? selfLong : selfShort,
+    selfHeight: landscape ? selfShort : selfLong,
+    selfTop: (insets.top || 0) + 56,
+    selfRight: Math.max(insets.right || 0, 0) + 16,
+  };
+}
 
 function useTimer(connectedAt) {
   const [now, setNow] = useState(Date.now());
@@ -58,34 +101,52 @@ const statusText = (call, duration) => {
   }
 };
 
-function Action({ icon, label, onPress, active = false }) {
+function Action({ icon, label, onPress, size, active = false }) {
   return (
     <View style={styles.action}>
       <Pressable
         onPress={onPress}
-        style={[styles.actionBtn, active && styles.actionBtnActive]}
+        style={[
+          styles.actionBtn,
+          { width: size, height: size, borderRadius: size / 2 },
+          active && styles.actionBtnActive,
+        ]}
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityState={{ selected: active }}
       >
-        <Icon name={icon} size={26} color={active ? BG : '#fff'} />
+        <Icon
+          name={icon}
+          size={Math.round(size * 0.46)}
+          color={active ? BG : '#fff'}
+        />
       </Pressable>
     </View>
   );
 }
 
-function BigButton({ icon, label, color, onPress }) {
+function BigButton({ icon, label, color, onPress, size }) {
   return (
     <View style={styles.big}>
       <Pressable
         onPress={onPress}
-        style={[styles.bigBtn, { backgroundColor: color }]}
+        style={[
+          styles.bigBtn,
+          {
+            backgroundColor: color,
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+          },
+        ]}
         accessibilityRole="button"
         accessibilityLabel={label}
       >
-        <Icon name={icon} size={32} color="#fff" />
+        <Icon name={icon} size={Math.round(size * 0.44)} color="#fff" />
       </Pressable>
-      <Text style={styles.bigLabel}>{label}</Text>
+      <Text style={styles.bigLabel} maxFontSizeMultiplier={1.2}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -115,6 +176,19 @@ export default function CallOverlay() {
     stopRecording,
   } = useCall();
   const duration = useTimer(call?.connectedAt);
+  const window = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  // Recording is built on LiveKit, so a call that runs on Agora cannot be recorded
+  const showRecord =
+    recordingAvailable &&
+    call?.provider !== 'agora' &&
+    call?.status === 'connected';
+  const m = callMetrics({
+    width: window.width,
+    height: window.height,
+    insets,
+    actionCount: 3 + (localVideo ? 1 : 0) + (showRecord ? 1 : 0),
+  });
 
   if (!call) {
     return null;
@@ -166,14 +240,22 @@ export default function CallOverlay() {
             <View style={styles.topSide} />
           </View>
 
-          <View style={styles.header}>
-            <Text style={styles.name} numberOfLines={1}>
+          <View style={[styles.header, { paddingTop: m.headerTop }]}>
+            <Text
+              style={[styles.name, { fontSize: m.nameSize }]}
+              numberOfLines={1}
+              maxFontSizeMultiplier={1.2}
+            >
               {call.peer.name}
             </Text>
             {number !== call.peer.name && (
-              <Text style={styles.number}>{number}</Text>
+              <Text style={styles.number} maxFontSizeMultiplier={1.2}>
+                {number}
+              </Text>
             )}
-            <Text style={styles.status}>{statusText(call, duration)}</Text>
+            <Text style={styles.status} maxFontSizeMultiplier={1.2}>
+              {statusText(call, duration)}
+            </Text>
             {!ended && peerState.length > 0 && (
               <View style={styles.peerState}>
                 <Icon
@@ -189,13 +271,13 @@ export default function CallOverlay() {
           </View>
 
           <View style={styles.middle}>
-            {bigVideo ? null : <Avatar name={call.peer.name} size={176} />}
+            {bigVideo ? null : <Avatar name={call.peer.name} size={m.avatar} />}
           </View>
 
           {/* The other person asks to record: nothing is recorded unless we allow it */}
           {recordingRequest && !ended && (
-            <View style={styles.consent}>
-              <Text style={styles.consentTitle}>
+            <View style={[styles.consent, { width: m.contentWidth - 32 }]}>
+              <Text style={styles.consentTitle} maxFontSizeMultiplier={1.2}>
                 {recordingRequest.from.name} wants to record this call
               </Text>
               <Text style={styles.consentNote}>
@@ -223,36 +305,46 @@ export default function CallOverlay() {
           )}
 
           {incoming ? (
-            <View style={styles.incomingRow}>
+            <View
+              style={[styles.incomingRow, { paddingBottom: m.incomingBottom }]}
+            >
               <BigButton
                 icon="phone-hangup"
                 label="Decline"
                 color={RED}
+                size={m.bigSize}
                 onPress={rejectCall}
               />
               <BigButton
                 icon={call.video ? 'video' : 'phone'}
                 label="Accept"
                 color={GREEN}
+                size={m.bigSize}
                 onPress={acceptCall}
               />
             </View>
           ) : (
-            <View style={styles.panel}>
+            <View style={[styles.panel, { paddingBottom: m.panelBottom }]}>
               <View style={styles.handle} />
               {ended ? (
-                <Text style={styles.endedText}>{call.endText}</Text>
+                <Text style={styles.endedText} maxFontSizeMultiplier={1.2}>
+                  {call.endText}
+                </Text>
               ) : (
-                <View style={styles.actionsRow}>
+                <View
+                  style={[styles.actionsRow, { width: m.contentWidth - 40 }]}
+                >
                   <Action
                     icon="volume-high"
                     label="Speaker"
+                    size={m.actionSize}
                     active={speakerOn}
                     onPress={toggleSpeaker}
                   />
                   <Action
                     icon={cameraOn ? 'video' : 'video-off'}
                     label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+                    size={m.actionSize}
                     active={cameraOn}
                     onPress={toggleCamera}
                   />
@@ -260,49 +352,60 @@ export default function CallOverlay() {
                     <Action
                       icon="camera-flip-outline"
                       label="Switch camera"
+                      size={m.actionSize}
                       onPress={flipCamera}
                     />
                   )}
-                  {/* Recording is built on LiveKit, so a call that runs on Agora cannot be recorded */}
-                  {recordingAvailable &&
-                    call.provider !== 'agora' &&
-                    call.status === 'connected' && (
-                      <Action
-                        icon={
-                          recording === 'on'
-                            ? 'record-circle'
-                            : 'record-circle-outline'
-                        }
-                        label={
-                          recording === 'on'
-                            ? 'Stop recording'
-                            : recording === 'asking'
-                            ? 'Waiting for them to allow recording'
-                            : 'Record call'
-                        }
-                        active={recording === 'on'}
-                        onPress={
-                          recording === 'on'
-                            ? stopRecording
-                            : recording === 'asking'
-                            ? undefined
-                            : requestRecording
-                        }
-                      />
-                    )}
+                  {showRecord && (
+                    <Action
+                      size={m.actionSize}
+                      icon={
+                        recording === 'on'
+                          ? 'record-circle'
+                          : 'record-circle-outline'
+                      }
+                      label={
+                        recording === 'on'
+                          ? 'Stop recording'
+                          : recording === 'asking'
+                          ? 'Waiting for them to allow recording'
+                          : 'Record call'
+                      }
+                      active={recording === 'on'}
+                      onPress={
+                        recording === 'on'
+                          ? stopRecording
+                          : recording === 'asking'
+                          ? undefined
+                          : requestRecording
+                      }
+                    />
+                  )}
                   <Action
                     icon={muted ? 'microphone-off' : 'microphone'}
                     label={muted ? 'Unmute' : 'Mute'}
+                    size={m.actionSize}
                     active={muted}
                     onPress={toggleMute}
                   />
                   <Pressable
                     onPress={endCall}
-                    style={styles.endBtn}
+                    style={[
+                      styles.endBtn,
+                      {
+                        width: m.endSize,
+                        height: m.endSize,
+                        borderRadius: m.endSize / 2,
+                      },
+                    ]}
                     accessibilityRole="button"
                     accessibilityLabel="End call"
                   >
-                    <Icon name="phone-hangup" size={28} color="#fff" />
+                    <Icon
+                      name="phone-hangup"
+                      size={Math.round(m.endSize * 0.44)}
+                      color="#fff"
+                    />
                   </Pressable>
                 </View>
               )}
@@ -310,7 +413,17 @@ export default function CallOverlay() {
           )}
         </SafeAreaView>
         {smallVideo && (
-          <View style={styles.selfView}>
+          <View
+            style={[
+              styles.selfView,
+              {
+                top: m.selfTop,
+                right: m.selfRight,
+                width: m.selfWidth,
+                height: m.selfHeight,
+              },
+            ]}
+          >
             <CallVideo
               trackRef={localVideo}
               style={styles.fill}
@@ -353,6 +466,7 @@ const styles = StyleSheet.create({
   },
   recordingText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   consent: {
+    alignSelf: 'center',
     backgroundColor: PANEL,
     borderRadius: 16,
     marginHorizontal: 16,
@@ -426,6 +540,7 @@ const styles = StyleSheet.create({
     marginBottom: 22,
   },
   actionsRow: {
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
