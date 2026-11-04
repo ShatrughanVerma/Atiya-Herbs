@@ -4,6 +4,7 @@ import { Alert, Modal, Platform, Vibration } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AudioSession } from '@livekit/react-native';
 import { Room as FakeRoom } from 'livekit-client';
+import { createAgoraRtcEngine } from 'react-native-agora';
 import { AuthProvider, useAuth } from '../../src/context/AuthContext';
 import { CallProvider, callUserId, useCall } from '../../src/calling/CallContext';
 import CallOverlay from '../../src/calling/CallOverlay';
@@ -36,7 +37,11 @@ jest.mock('livekit-client', () => {
       this.handlers = {};
       this.remoteParticipants = new Map();
       this.cameraPublication = null;
-      this.connect = jest.fn(async () => {});
+      this.connect = jest.fn(async () => {
+        if (Room.failConnect) {
+          throw new Error('LiveKit refused the connection');
+        }
+      });
       this.disconnect = jest.fn(async () => {});
       this.localParticipant = {
         isCameraEnabled: false,
@@ -172,6 +177,7 @@ const connectedOutgoingCall = async video => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  FakeRoom.failConnect = false;
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   jest.spyOn(Vibration, 'vibrate').mockImplementation(() => {});
   FakeRoom.last = null;
@@ -526,4 +532,198 @@ test('a second call cannot start while one is open, and the log can be cleared',
   expect(api.history).toHaveLength(1);
   await act(() => api.clearHistory());
   expect(api.history).toEqual([]);
+});
+
+// ---- Agora: the server can put a call on Agora, and LiveKit failing moves it there ----
+
+const AGORA_READY = {
+  callId: 'c1',
+  provider: 'agora',
+  appId: 'app123',
+  channel: 'call-c1',
+  account: '9876543210',
+  token: '007agora-token',
+};
+
+// A fake Agora engine: records what the app asks for and lets the test fire Agora's events
+const fakeAgoraEngine = () => {
+  const engine = {
+    handler: null,
+    initialize: jest.fn(() => 0),
+    registerEventHandler: jest.fn(handler => {
+      engine.handler = handler;
+      return true;
+    }),
+    unregisterEventHandler: jest.fn(),
+    enableAudio: jest.fn(),
+    enableVideo: jest.fn(),
+    enableLocalVideo: jest.fn(),
+    startPreview: jest.fn(),
+    stopPreview: jest.fn(),
+    joinChannelWithUserAccount: jest.fn(() => 0),
+    updateChannelMediaOptions: jest.fn(),
+    muteLocalAudioStream: jest.fn(),
+    setEnableSpeakerphone: jest.fn(),
+    switchCamera: jest.fn(),
+    leaveChannel: jest.fn(),
+    release: jest.fn(),
+  };
+  createAgoraRtcEngine.mockImplementation(() => engine);
+  return engine;
+};
+
+const ringingOutgoingCall = async video => {
+  const socket = await render();
+  await act(() => api.startCall(BILAL, video));
+  await act(() => sent(socket, 'call:start')[0].ack({ ok: true, callId: 'c1' }));
+  return socket;
+};
+
+test('a call the server puts on Agora joins with Agora (not LiveKit) and works like any other call', async () => {
+  const engine = fakeAgoraEngine();
+  const socket = await ringingOutgoingCall(false);
+
+  await act(() => socket.serverSends('call:ready', AGORA_READY));
+  expect(FakeRoom.last).toBeNull(); // LiveKit is not used
+  expect(engine.initialize).toHaveBeenCalledWith(expect.objectContaining({ appId: 'app123' }));
+  expect(engine.joinChannelWithUserAccount).toHaveBeenCalledWith(
+    '007agora-token',
+    'call-c1',
+    '9876543210',
+    expect.objectContaining({ publishMicrophoneTrack: true, publishCameraTrack: false }),
+  );
+  expect(engine.setEnableSpeakerphone).toHaveBeenLastCalledWith(false); // voice calls start on the earpiece
+  expect(api.call.status).toBe('connecting');
+
+  await act(() => engine.handler.onUserJoined({}, 77, 0));
+  expect(api.call.status).toBe('connected');
+
+  await act(() => api.toggleMute());
+  expect(engine.muteLocalAudioStream).toHaveBeenLastCalledWith(true);
+  await act(() => api.toggleSpeaker());
+  expect(engine.setEnableSpeakerphone).toHaveBeenLastCalledWith(true);
+
+  // the other person's camera turns a voice call into a video call
+  await act(() => engine.handler.onRemoteVideoStateChanged({}, 77, 2));
+  expect(api.remoteVideo).toEqual({ agora: true, uid: 77 });
+  expect(api.call.video).toBe(true);
+  await act(() => engine.handler.onRemoteAudioStateChanged({}, 77, 0));
+  expect(api.peerMedia.muted).toBe(true);
+
+  await act(() => button('End call').props.onPress());
+  expect(sent(socket, 'call:end')[0].payload).toEqual({ callId: 'c1' });
+  expect(engine.leaveChannel).toHaveBeenCalled();
+  expect(engine.release).toHaveBeenCalled();
+  expect(AudioSession.startAudioSession).not.toHaveBeenCalled(); // LiveKit's audio was never started
+  expect(AudioSession.stopAudioSession).not.toHaveBeenCalled();
+  expect(api.history[0]).toMatchObject({ outcome: 'answered', video: true });
+});
+
+test('an Agora video call shows both cameras, and the camera button and flip button work', async () => {
+  const engine = fakeAgoraEngine();
+  const socket = await ringingOutgoingCall(true);
+  await act(() => socket.serverSends('call:ready', AGORA_READY));
+
+  expect(engine.enableVideo).toHaveBeenCalled();
+  expect(engine.joinChannelWithUserAccount).toHaveBeenCalledWith(
+    expect.any(String),
+    'call-c1',
+    '9876543210',
+    expect.objectContaining({ publishCameraTrack: true }),
+  );
+  expect(api.localVideo).toEqual({ agora: true, uid: 0 }); // uid 0 is this phone's own camera
+  expect(engine.setEnableSpeakerphone).toHaveBeenLastCalledWith(true); // video calls start on the loudspeaker
+
+  await act(() => engine.handler.onUserJoined({}, 77, 0));
+  await act(() => api.toggleCamera());
+  expect(engine.updateChannelMediaOptions).toHaveBeenLastCalledWith({ publishCameraTrack: false });
+  expect(api.localVideo).toBeNull();
+  await act(() => api.toggleCamera());
+  expect(engine.updateChannelMediaOptions).toHaveBeenLastCalledWith({ publishCameraTrack: true });
+  expect(api.localVideo).toEqual({ agora: true, uid: 0 });
+
+  await act(() => api.flipCamera());
+  expect(engine.switchCamera).toHaveBeenCalled();
+  expect(api.frontCamera).toBe(false);
+});
+
+test('the other person leaving an Agora call ends it, and Agora connection trouble is shown', async () => {
+  const engine = fakeAgoraEngine();
+  const socket = await ringingOutgoingCall(false);
+  await act(() => socket.serverSends('call:ready', AGORA_READY));
+  await act(() => engine.handler.onUserJoined({}, 77, 0));
+
+  await act(() => engine.handler.onConnectionStateChanged({}, 4, 0)); // reconnecting
+  expect(api.call.status).toBe('reconnecting');
+  await act(() => engine.handler.onConnectionStateChanged({}, 3, 0)); // connected again
+  expect(api.call.status).toBe('connected');
+
+  await act(() => engine.handler.onUserOffline({}, 77, 0));
+  expect(sent(socket, 'call:end')[0].payload).toEqual({ callId: 'c1' });
+  expect(api.call.status).toBe('ended');
+  expect(api.history[0].outcome).toBe('answered');
+});
+
+test('if Agora cannot join, the call ends (there is nothing further to fall back to)', async () => {
+  const engine = fakeAgoraEngine();
+  engine.joinChannelWithUserAccount.mockReturnValue(-2);
+  jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const socket = await ringingOutgoingCall(false);
+  await act(() => socket.serverSends('call:ready', AGORA_READY));
+
+  expect(sent(socket, 'call:fallback')).toHaveLength(0);
+  expect(sent(socket, 'call:end')[0].payload).toEqual({ callId: 'c1' });
+  expect(api.call.status).toBe('ended');
+  expect(engine.release).toHaveBeenCalled(); // the engine is not left running
+});
+
+test('when LiveKit refuses to connect (for example its free limit is used up) the phone asks the server to use Agora, once', async () => {
+  const engine = fakeAgoraEngine();
+  jest.spyOn(console, 'warn').mockImplementation(() => {});
+  FakeRoom.failConnect = true;
+  const socket = await ringingOutgoingCall(false);
+
+  await act(() => socket.serverSends('call:ready', READY));
+  expect(sent(socket, 'call:fallback')).toHaveLength(1);
+  expect(sent(socket, 'call:fallback')[0].payload).toEqual({ callId: 'c1' });
+  expect(api.call.status).toBe('connecting'); // not ended: waiting for the server's answer
+  expect(sent(socket, 'call:end')).toHaveLength(0);
+
+  // the server moves the call: LiveKit is left and Agora is joined
+  const room = FakeRoom.last;
+  await act(() => sent(socket, 'call:fallback')[0].ack({ ok: true }));
+  await act(() => socket.serverSends('call:ready', AGORA_READY));
+  expect(room.disconnect).toHaveBeenCalled();
+  expect(engine.joinChannelWithUserAccount).toHaveBeenCalledTimes(1);
+  await act(() => engine.handler.onUserJoined({}, 77, 0));
+  expect(api.call.status).toBe('connected');
+
+  // and the same call is never moved a second time
+  await act(() => engine.handler.onConnectionStateChanged({}, 5, 0)); // failed
+  expect(sent(socket, 'call:fallback')).toHaveLength(1);
+  expect(api.call.status).toBe('ended');
+});
+
+test('if the server cannot move the call to Agora, the call ends as before', async () => {
+  fakeAgoraEngine();
+  jest.spyOn(console, 'warn').mockImplementation(() => {});
+  FakeRoom.failConnect = true;
+  const socket = await ringingOutgoingCall(false);
+  await act(() => socket.serverSends('call:ready', READY));
+
+  await act(() => sent(socket, 'call:fallback')[0].ack({ ok: false }));
+  expect(sent(socket, 'call:end')[0].payload).toEqual({ callId: 'c1' });
+  expect(api.call.status).toBe('ended');
+  expect(api.call.endText).toBe('Could not connect');
+});
+
+test('losing LiveKit before the call ever connected asks for Agora instead of ending it', async () => {
+  fakeAgoraEngine();
+  const socket = await ringingOutgoingCall(false);
+  await act(() => socket.serverSends('call:ready', READY));
+  const room = FakeRoom.last;
+
+  await act(() => room.fire('Disconnected'));
+  expect(sent(socket, 'call:fallback')).toHaveLength(1);
+  expect(sent(socket, 'call:end')).toHaveLength(0);
 });

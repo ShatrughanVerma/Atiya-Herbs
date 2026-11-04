@@ -21,3 +21,16 @@ jest.mock('livekit-client', () => ({
   RoomEvent: {},
   Track: {Source: {Camera: 'camera'}},
 }));
+
+// Agora's call engine is native code; calling tests that need it replace this with a richer fake
+jest.mock('react-native-agora', () => ({
+  createAgoraRtcEngine: jest.fn(),
+  ChannelProfileType: {ChannelProfileCommunication: 0},
+  ClientRoleType: {ClientRoleBroadcaster: 1},
+  ConnectionStateType: {ConnectionStateConnected: 3, ConnectionStateReconnecting: 4, ConnectionStateFailed: 5},
+  RemoteAudioState: {RemoteAudioStateStopped: 0, RemoteAudioStateDecoding: 2},
+  RemoteVideoState: {RemoteVideoStateStopped: 0, RemoteVideoStateDecoding: 2},
+  RenderModeType: {RenderModeHidden: 1},
+  VideoMirrorModeType: {VideoMirrorModeEnabled: 1, VideoMirrorModeDisabled: 2},
+  RtcSurfaceView: 'RtcSurfaceView',
+}));

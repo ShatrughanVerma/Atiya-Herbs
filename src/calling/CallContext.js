@@ -11,6 +11,7 @@ import { Alert, Platform, Vibration } from 'react-native';
 import { io } from 'socket.io-client';
 import { AudioSession } from '@livekit/react-native';
 import { Room, RoomEvent, Track } from 'livekit-client';
+import { joinAgoraCall } from './agoraCall';
 import { CALL_BACKEND_URL } from './config';
 import { ensureCallPermissions } from './permissions';
 import { normalizeMobile } from './phone';
@@ -18,8 +19,10 @@ import { useAuth } from '../context/AuthContext';
 
 // One-to-one voice and video calls.
 //  - Ringing: the Socket.IO connection to call-backend/ (call:start / incoming / accept / reject / end).
-//  - Audio and video: LiveKit. When the callee accepts, the backend gives both people a token for
-//    that call's own room, and each phone joins it with livekit-client.
+//  - Audio and video: LiveKit, or Agora when the server chooses it. When the callee accepts, the backend gives
+//    both people what they need to join that call's own room (call:ready, with a `provider`), and each phone joins
+//    it with livekit-client or react-native-agora. If LiveKit cannot connect (for example its free limit is used
+//    up), the phone asks the server to move the call to Agora (call:fallback) and both people rejoin there.
 //
 // call.status: calling → ringing → connecting → connected (↔ reconnecting) → ended
 // An incoming call starts at ringing. "ended" shows the reason for a moment, then the call closes.
@@ -47,6 +50,7 @@ const RECORDING_ERRORS = {
   already: 'A recording request is already open.',
   quota: 'This month’s free recording time is used up.',
   failed: 'The recording could not be started.',
+  switched: 'Recording stopped because the call moved to another calling service.',
 };
 
 const endMessage = (reason, direction) => {
@@ -76,6 +80,9 @@ const cameraRef = (participant, publication) => ({
   source: Track.Source.Camera,
 });
 
+// What CallVideo needs to show a video on an Agora call (uid 0 is this phone's own camera)
+const agoraVideo = uid => ({ agora: true, uid });
+
 export function CallProvider({ children }) {
   const { user } = useAuth();
   const myId = callUserId(user);
@@ -101,6 +108,8 @@ export function CallProvider({ children }) {
   const socketRef = useRef(null);
   const callRef = useRef(null);
   const roomRef = useRef(null);
+  const agoraRef = useRef(null); // the running Agora call, when the call is on Agora
+  const fallbackTriedRef = useRef(null); // id of the call we already asked the server to move to Agora
   const closeTimerRef = useRef(null);
   const audioStartedRef = useRef(false);
   const speakerRef = useRef(false);
@@ -131,6 +140,10 @@ export function CallProvider({ children }) {
     speakerRef.current = on;
     setSpeakerOn(on);
     if (!audioStartedRef.current) {
+      return;
+    }
+    if (agoraRef.current) {
+      agoraRef.current.setSpeaker(on);
       return;
     }
     try {
@@ -186,16 +199,25 @@ export function CallProvider({ children }) {
     }
   }, [patch, setSpeaker]);
 
-  // Leaves LiveKit and releases the mic, camera and phone audio
-  const leaveRoom = useCallback(() => {
+  // Leaves whichever provider the call is on and releases the mic, camera and phone audio
+  const stopEngines = useCallback(() => {
     const room = roomRef.current;
     roomRef.current = null;
     room?.removeAllListeners();
     room?.disconnect().catch(() => {});
+    const agora = agoraRef.current;
+    agoraRef.current = null;
+    agora?.leave();
     if (audioStartedRef.current) {
       audioStartedRef.current = false;
-      AudioSession.stopAudioSession().catch(() => {});
+      if (!agora) {
+        AudioSession.stopAudioSession().catch(() => {});
+      }
     }
+  }, []);
+
+  const leaveRoom = useCallback(() => {
+    stopEngines();
     setLocalVideo(null);
     setRemoteVideo(null);
     setPeerMedia(NO_PEER_MEDIA);
@@ -208,7 +230,7 @@ export function CallProvider({ children }) {
     speakerRef.current = false;
     setFrontCamera(true);
     frontRef.current = true;
-  }, []);
+  }, [stopEngines]);
 
   // Closes the call: logs it in the Calls list, shows why it ended for a moment, then closes the screen
   const finish = useCallback(
@@ -252,10 +274,133 @@ export function CallProvider({ children }) {
     setCurrent(null);
   }, [leaveRoom, setCurrent]);
 
-  const joinRoom = useCallback(
-    async ({ serverUrl, token }) => {
+  // LiveKit could not connect for this call: ask the server to move it to Agora (once per call). Returns false when
+  // that was already tried, so the caller gives up. Both phones then get a new call:ready with provider "agora".
+  const requestFallback = useCallback(
+    callId => {
+      if (!callId || fallbackTriedRef.current === callId) {
+        return false;
+      }
+      fallbackTriedRef.current = callId;
+      emit('call:fallback', { callId }, res => {
+        if (!res?.ok && callRef.current?.id === callId) {
+          emit('call:end', { callId });
+          finish('missed', 'Could not connect');
+        }
+      });
+      return true;
+    },
+    [emit, finish],
+  );
+
+  const joinAgora = useCallback(
+    async ({ appId, channel, account, token }) => {
       const current = callRef.current;
-      const room = new Room({ adaptiveStream: true, dynacast: true });
+      const callId = current.id;
+      const live = () =>
+        callRef.current?.id === callId && callRef.current.status !== 'ended';
+      let remoteUid = null;
+
+      const handlers = {
+        onRemoteJoined: uid => {
+          remoteUid = uid;
+          if (live() && callRef.current.status === 'connecting') {
+            patch({ status: 'connected', connectedAt: Date.now() });
+          }
+        },
+        onRemoteLeft: () => {
+          remoteUid = null;
+          setRemoteVideo(null);
+          const c = callRef.current;
+          // The other person left; the server's call:ended normally arrives first
+          if (live() && c.status === 'connected') {
+            emit('call:end', { callId });
+            finish('answered', 'Call ended');
+          }
+        },
+        onRemoteVideo: (uid, on) => {
+          if (!live()) {
+            return;
+          }
+          remoteUid = uid;
+          setRemoteVideo(on ? agoraVideo(uid) : null);
+          setPeerMedia(media => ({ ...media, videoOff: !on }));
+          // Either side switching on a camera turns a voice call into a video call
+          if (on && !callRef.current.video) {
+            patch({ video: true });
+            setSpeaker(true);
+          }
+        },
+        onRemoteMuted: (uid, isMuted) =>
+          live() && setPeerMedia(media => ({ ...media, muted: isMuted })),
+        onReconnecting: () =>
+          live() &&
+          callRef.current.status === 'connected' &&
+          patch({ status: 'reconnecting' }),
+        onReconnected: () =>
+          live() &&
+          callRef.current.status === 'reconnecting' &&
+          patch({ status: 'connected' }),
+        onFailed: () => {
+          if (live()) {
+            emit('call:end', { callId });
+            finish(
+              callRef.current.connectedAt ? 'answered' : 'missed',
+              callRef.current.connectedAt ? 'Connection lost' : 'Could not connect',
+            );
+          }
+        },
+      };
+
+      const agora = await joinAgoraCall({
+        appId,
+        channel,
+        account,
+        token,
+        video: current.video,
+        handlers,
+      });
+      if (!live()) {
+        agora.leave(); // the call ended while connecting
+        return;
+      }
+      agoraRef.current = agora;
+      audioStartedRef.current = true;
+      speakerRef.current = !!current.video;
+      setSpeakerOn(!!current.video);
+      agora.setSpeaker(!!current.video);
+      if (current.video) {
+        setLocalVideo(agoraVideo(0));
+        setCameraOn(true);
+      }
+      if (remoteUid !== null && callRef.current.status === 'connecting') {
+        patch({ status: 'connected', connectedAt: Date.now() });
+      }
+    },
+    [emit, finish, patch, setSpeaker],
+  );
+
+  const joinRoom = useCallback(
+    async payload => {
+      if (payload.provider === 'agora') {
+        stopEngines(); // a call moved over from LiveKit leaves LiveKit first
+        return joinAgora(payload);
+      }
+      const { serverUrl, token } = payload;
+      const current = callRef.current;
+      // Clearer voice: LiveKit's default voice setting is only 24 kbit/s with DTX (it stops sending during
+      // pauses, which can clip the start of words). 40 kbit/s without DTX sounds noticeably cleaner, and
+      // echo / noise filters are switched on explicitly. RED (on by default) repairs lost audio packets.
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        audioCaptureDefaults: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        publishDefaults: { dtx: false, red: true, audioPreset: { maxBitrate: 40000 } },
+      });
       roomRef.current = room;
 
       room
@@ -289,6 +434,9 @@ export function CallProvider({ children }) {
         .on(RoomEvent.Disconnected, () => {
           const c = callRef.current;
           if (c && roomRef.current === room && c.status !== 'ended') {
+            if (!c.connectedAt && requestFallback(c.id)) {
+              return; // never got through on LiveKit: the server is moving the call to Agora
+            }
             emit('call:end', { callId: c.id });
             finish(
               c.connectedAt ? 'answered' : 'missed',
@@ -312,7 +460,16 @@ export function CallProvider({ children }) {
       }
       refreshMedia();
     },
-    [emit, finish, patch, refreshMedia, setSpeaker],
+    [
+      emit,
+      finish,
+      joinAgora,
+      patch,
+      refreshMedia,
+      requestFallback,
+      setSpeaker,
+      stopEngines,
+    ],
   );
 
   const startCall = useCallback(
@@ -423,6 +580,10 @@ export function CallProvider({ children }) {
     const next = !mutedRef.current;
     mutedRef.current = next;
     setMuted(next);
+    if (agoraRef.current) {
+      agoraRef.current.setMuted(next);
+      return;
+    }
     await roomRef.current?.localParticipant
       .setMicrophoneEnabled(!next)
       .catch(() => {});
@@ -436,16 +597,31 @@ export function CallProvider({ children }) {
   // Camera on/off. In a voice call this switches to video, like the video button in WhatsApp.
   const toggleCamera = useCallback(async () => {
     const room = roomRef.current;
+    const agora = agoraRef.current;
     const current = callRef.current;
-    if (!room || !current || current.status === 'ended') {
+    if ((!room && !agora) || !current || current.status === 'ended') {
       return;
     }
-    const turnOn = !room.localParticipant.isCameraEnabled;
+    const turnOn = agora ? !agora.cameraOn : !room.localParticipant.isCameraEnabled;
     if (turnOn && !(await ensureCallPermissions(true))) {
       Alert.alert(
         'Permission needed',
         'Allow camera access to turn on your video.',
       );
+      return;
+    }
+    if (agora) {
+      try {
+        agora.setCamera(turnOn);
+        setCameraOn(turnOn);
+        setLocalVideo(turnOn ? agoraVideo(0) : null);
+        if (turnOn && callRef.current && !callRef.current.video) {
+          patch({ video: true });
+          setSpeaker(true);
+        }
+      } catch (e) {
+        Alert.alert('Calls', 'Could not open the camera.');
+      }
       return;
     }
     try {
@@ -459,9 +635,15 @@ export function CallProvider({ children }) {
       Alert.alert('Calls', 'Could not open the camera.');
     }
     refreshMedia();
-  }, [refreshMedia]);
+  }, [patch, refreshMedia, setSpeaker]);
 
   const flipCamera = useCallback(async () => {
+    if (agoraRef.current) {
+      agoraRef.current.switchCamera();
+      frontRef.current = !frontRef.current;
+      setFrontCamera(frontRef.current);
+      return;
+    }
     const publication = roomRef.current?.localParticipant.getTrackPublication(
       Track.Source.Camera,
     );
@@ -598,6 +780,10 @@ export function CallProvider({ children }) {
       } catch (e) {
         console.warn('Could not join the call', e);
         if (callRef.current?.id === payload.callId) {
+          // LiveKit refused (its free limit may be used up): try Agora before giving up
+          if (payload.provider !== 'agora' && requestFallback(payload.callId)) {
+            return;
+          }
           socket.emit('call:end', { callId: payload.callId });
           finish('missed', 'Could not connect');
         }
@@ -634,7 +820,16 @@ export function CallProvider({ children }) {
       setOnlineUsers([]);
       setRecordingAvailable(false);
     };
-  }, [myId, myName, finish, joinRoom, leaveRoom, patch, setCurrent]);
+  }, [
+    myId,
+    myName,
+    finish,
+    joinRoom,
+    leaveRoom,
+    patch,
+    requestFallback,
+    setCurrent,
+  ]);
 
   const value = useMemo(
     () => ({

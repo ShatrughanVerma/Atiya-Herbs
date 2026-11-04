@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { VideoTrack } from '@livekit/react-native';
+import CallVideo from './CallVideo';
 import Avatar from './Avatar';
 import { useCall } from './CallContext';
 import { formatMobile } from './phone';
@@ -141,10 +141,9 @@ export default function CallOverlay() {
       <StatusBar barStyle="light-content" backgroundColor={BG} />
       <View style={styles.screen}>
         {bigVideo && (
-          <VideoTrack
+          <CallVideo
             trackRef={bigVideo}
             style={styles.fill}
-            objectFit="cover"
             mirror={bigVideo === localVideo && frontCamera}
           />
         )}
@@ -309,10 +308,9 @@ export default function CallOverlay() {
         </SafeAreaView>
         {smallVideo && (
           <View style={styles.selfView}>
-            <VideoTrack
+            <CallVideo
               trackRef={localVideo}
               style={styles.fill}
-              objectFit="cover"
               mirror={frontCamera}
               zOrder={1}
             />

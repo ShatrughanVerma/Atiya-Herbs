@@ -51,9 +51,12 @@ afterEach(async () => {
   }
 });
 
-const startServer = async env => {
+let serverProviders;
+const startServer = async (env, overrides = {}) => {
   const egress = {async startRoomCompositeEgress() { return {egressId: 'EG_1'}; }, async stopEgress() {}, async listEgress() { return []; }};
-  ({server} = createCallBackend({RING_TIMEOUT_MS: '2000', ...env}, () => {}, {store: new MemoryStore(), egress}));
+  let tokens;
+  ({server, tokens} = createCallBackend({RING_TIMEOUT_MS: '2000', ...env}, () => {}, {store: new MemoryStore(), egress, ...overrides}));
+  serverProviders = tokens;
   server.listen(0);
   await once(server, 'listening');
   return `http://127.0.0.1:${server.address().port}`;
@@ -98,4 +101,108 @@ test('a call on Agora cannot be recorded yet, because recording is built on Live
   const url = await startServer({...LIVEKIT, ...AGORA, CALL_PROVIDER: 'agora', R2_ENDPOINT: 'https://x.example', R2_ACCESS_KEY_ID: 'k', R2_SECRET_ACCESS_KEY: 's', R2_BUCKET: 'b'});
   const {a, callId} = await callAndAnswer(url);
   assert.deepEqual(await emitAck(a, 'recording:request', {callId}), {ok: false, error: 'unavailable'});
+});
+
+// ---- auto mode and moving a call to Agora ----
+
+test('auto mode uses LiveKit while it answers and Agora while it does not, and goes back when it recovers', async () => {
+  let up = true;
+  const probe = async () => {
+    if (!up) {
+      throw new Error('quota used up');
+    }
+  };
+  const logs = [];
+  const providers = createProviders({...LIVEKIT, ...AGORA, CALL_PROVIDER: 'auto'}, {probe});
+  assert.equal(providers.provider, 'livekit'); // assumed up before the first check
+
+  await providers.refresh(m => logs.push(m));
+  assert.deepEqual([providers.provider, providers.livekitUp], ['livekit', true]);
+
+  up = false;
+  await providers.refresh(m => logs.push(m));
+  assert.deepEqual([providers.provider, providers.livekitUp, providers.configured], ['agora', false, true]);
+  await providers.refresh(m => logs.push(m)); // a second failure does not repeat the log line
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /LiveKit is not answering \(quota used up\)/);
+
+  up = true;
+  await providers.refresh(m => logs.push(m));
+  assert.deepEqual([providers.provider, providers.livekitUp], ['livekit', true]);
+  assert.match(logs[1], /answers again/);
+});
+
+test('auto mode without Agora set up keeps using LiveKit, and other modes ignore the check', async () => {
+  const failing = async () => {
+    throw new Error('down');
+  };
+  const noAgora = createProviders({...LIVEKIT, CALL_PROVIDER: 'auto'}, {probe: failing});
+  await noAgora.refresh();
+  assert.equal(noAgora.provider, 'livekit');
+
+  const fixed = createProviders({...LIVEKIT, ...AGORA}, {probe: failing});
+  await fixed.refresh();
+  assert.deepEqual([fixed.provider, fixed.livekitUp], ['livekit', true]); // not auto: the check is never run
+});
+
+test('watch() checks right away, keeps checking, and can be stopped; it does nothing outside auto mode', async () => {
+  let checks = 0;
+  const probe = async () => {
+    checks += 1;
+  };
+  const stopped = createProviders({...LIVEKIT, ...AGORA}, {probe}).watch();
+  stopped();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(checks, 0);
+
+  const providers = createProviders({...LIVEKIT, ...AGORA, CALL_PROVIDER: 'auto'}, {probe});
+  const stop = providers.watch(() => {}, 5);
+  await new Promise(resolve => setTimeout(resolve, 60));
+  stop();
+  assert.ok(checks >= 3, `expected repeated checks, got ${checks}`);
+});
+
+test('in auto mode a new call starts on Agora while LiveKit is down', async () => {
+  const url = await startServer({...LIVEKIT, ...AGORA, CALL_PROVIDER: 'auto'}, {probe: async () => { throw new Error('down'); }});
+  const health = await (await fetch(`${url}/health`)).json();
+  assert.equal(health.callProviderMode, 'auto');
+  // the first check runs when the server starts for real; here it is run by hand
+  await serverProviders.refresh();
+  const {readyA, readyB} = await callAndAnswer(url);
+  assert.deepEqual([readyA.provider, readyB.provider], ['agora', 'agora']);
+});
+
+test('a phone that cannot connect through LiveKit gets the call moved to Agora, for both people, once', async () => {
+  const url = await startServer({...LIVEKIT, ...AGORA});
+  const {a, b, callId, readyA, readyB} = await callAndAnswer(url);
+  assert.deepEqual([readyA.provider, readyB.provider], ['livekit', 'livekit']);
+
+  const movedA = once(a, 'call:ready');
+  const movedB = once(b, 'call:ready');
+  assert.deepEqual(await emitAck(a, 'call:fallback', {callId}), {ok: true});
+  const [[a2], [b2]] = [await movedA, await movedB];
+  for (const [ready, account] of [[a2, 'asha'], [b2, 'bilal']]) {
+    assert.deepEqual([ready.callId, ready.provider, ready.channel, ready.account], [callId, 'agora', `call-${callId}`, account]);
+    assert.match(ready.token, /^007/);
+  }
+
+  // the other phone asking at the same moment is fine and does not move the call again
+  assert.deepEqual(await emitAck(b, 'call:fallback', {callId}), {ok: true, already: true});
+});
+
+test('moving a call to Agora is refused when Agora is not set up, or the call is not active, or it is not your call', async () => {
+  let url = await startServer({...LIVEKIT});
+  const {a, callId} = await callAndAnswer(url);
+  assert.deepEqual(await emitAck(a, 'call:fallback', {callId}), {ok: false, error: 'unavailable'});
+  clients.splice(0).forEach(c => c.disconnect());
+  await new Promise(resolve => server.close(resolve));
+
+  url = await startServer({...LIVEKIT, ...AGORA});
+  const x = await join(url, 'asha');
+  const y = await join(url, 'bilal');
+  const z = await join(url, 'carol');
+  const started = await emitAck(x, 'call:start', {to: 'bilal', video: false});
+  assert.deepEqual(await emitAck(x, 'call:fallback', {callId: started.callId}), {ok: false, error: 'not-active'}); // still ringing
+  assert.deepEqual(await emitAck(z, 'call:fallback', {callId: started.callId}), {ok: false, error: 'not-active'}); // someone else's call
+  assert.deepEqual(await emitAck(y, 'call:fallback', {callId: 'nope'}), {ok: false, error: 'not-active'});
 });

@@ -12,6 +12,8 @@ const crypto = require('node:crypto');
 //   session       {activeCallId}                    on every (re)connect
 //   users         [{id, name, busy}]                everyone online
 //   call:incoming {callId, from: {id, name}, video}
+//   call:fallback {callId} (ack {ok})               a phone that cannot connect through LiveKit asks for the call to
+//                                                   be moved to Agora; both then get a new call:ready
 //   call:ready    {callId, provider, ...}           both people, after accept: join the call. LiveKit sends
 //                                                   {serverUrl, token}; Agora sends {appId, channel, account, token}
 //   call:ended    {callId, reason: 'rejected'|'cancelled'|'no-answer'|'ended'|'disconnected'}
@@ -89,6 +91,15 @@ function attachSignaling(
     broadcastUsers();
   };
 
+  // Each person gets their own token for this call's room, on the provider the call is using
+  const sendReady = async call => {
+    for (const userId of [call.caller, call.callee]) {
+      const person = users.get(userId);
+      const join = await tokens.issue(call.provider, {identity: userId, name: person?.name || userId, room: call.room});
+      emitTo(userId, 'call:ready', {callId: call.id, ...join});
+    }
+  };
+
   // The call this socket's user belongs to, or null. Anyone else's call id is ignored.
   const callFor = (socket, callId) => {
     const call = calls.get(callId);
@@ -153,14 +164,40 @@ function attachSignaling(
       clearTimeout(call.ringTimer);
       call.state = 'active';
       try {
-        // Each person gets their own token, made for this call's room only
-        for (const userId of [call.caller, call.callee]) {
-          const person = users.get(userId);
-          const join = await tokens.issue(call.provider, {identity: userId, name: person?.name || userId, room: call.room});
-          emitTo(userId, 'call:ready', {callId: call.id, ...join});
-        }
+        await sendReady(call);
       } catch (e) {
         log(`could not create call tokens: ${e.message}`);
+        endCall(call.id, 'ended');
+      }
+    });
+
+    // A phone could not connect through LiveKit (for example its free limit is used up): move the call to Agora.
+    // Either phone can ask, and both may at once, so asking again for a call already on Agora is simply "ok".
+    socket.on('call:fallback', async (payload, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      const call = callFor(socket, payload?.callId);
+      if (!call || call.state !== 'active') {
+        return reply({ok: false, error: 'not-active'});
+      }
+      if (call.provider === 'agora') {
+        return reply({ok: true, already: true});
+      }
+      if (!tokens.agoraConfigured) {
+        return reply({ok: false, error: 'unavailable'});
+      }
+      call.provider = 'agora';
+      // A recording runs on LiveKit, which the call is leaving
+      if (call.recording) {
+        stopRecording(call);
+        emitTo(call.caller, 'recording:state', {callId: call.id, state: 'off', reason: 'switched'});
+        emitTo(call.callee, 'recording:state', {callId: call.id, state: 'off', reason: 'switched'});
+      }
+      reply({ok: true});
+      log(`call moved from LiveKit to Agora, ${calls.size} active`);
+      try {
+        await sendReady(call);
+      } catch (e) {
+        log(`could not create Agora call tokens: ${e.message}`);
         endCall(call.id, 'ended');
       }
     });

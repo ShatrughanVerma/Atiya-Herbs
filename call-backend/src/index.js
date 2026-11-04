@@ -16,7 +16,7 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
 
   const server = http.createServer(app);
   const io = new Server(server, {maxHttpBufferSize: 16 * 1024, pingInterval: 10000, pingTimeout: 10000});
-  const tokens = createProviders(env);
+  const tokens = createProviders(env, {probe: overrides.probe});
   const store = overrides.store || createRecordingStore(env, log);
   const recording = createRecordingService({
     env,
@@ -46,6 +46,8 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
       livekitConfigured: tokens.livekitConfigured,
       agoraConfigured: tokens.agoraConfigured,
       callProvider: tokens.provider, // which one new calls use (CALL_PROVIDER)
+      callProviderMode: tokens.mode || 'livekit',
+      livekitUp: tokens.livekitUp, // in auto mode: did LiveKit answer at the last check
       recordingAvailable: recording.available,
       recordingDestination: recording.destination,
       recordingCompression: recording.compression,
@@ -67,6 +69,7 @@ const lanAddresses = () =>
 if (require.main === module) {
   const port = Number(process.env.PORT) || 4000;
   const {server, tokens, store, recording} = createCallBackend();
+  tokens.watch(msg => console.log(`  ${msg}`)); // CALL_PROVIDER=auto: keep checking that LiveKit answers
   // Creates the recordings table in Cloudflare D1 if it isn't there yet, then moves any recording that is still
   // waiting in R2 (for example after a restart) to Cloudinary, and checks again every 15 minutes
   const sweep = () => recording.retryPendingArchives().catch(e => console.warn(`  Recording sweep failed: ${e.message}`));
