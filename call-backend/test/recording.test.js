@@ -102,6 +102,8 @@ test('video recordings ask LiveKit for small output (360p, 15 fps, low bitrate),
 
   const small = await recordOnce({});
   assert.equal(small.audioOnly, false);
+  assert.equal(small.layout, 'grid'); // both people in tiles of equal size, not one big and one thin strip
+  assert.equal((await recordOnce({RECORDING_LAYOUT: 'speaker'})).layout, 'speaker');
   const {width, height, framerate, videoBitrate, audioBitrate} = small.encodingOptions;
   assert.deepEqual({width, height, framerate, videoBitrate, audioBitrate}, {width: 640, height: 360, framerate: 15, videoBitrate: 150, audioBitrate: 32});
 

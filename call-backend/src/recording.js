@@ -50,6 +50,9 @@ function createRecordingService({
     videoBitrate: number(env.RECORDING_VIDEO_KBPS, 150, 50, 5000),
     audioBitrate: number(env.RECORDING_AUDIO_KBPS, 32, 16, 128),
   });
+  // How the people are arranged in the video. LiveKit's own default is "speaker" (whoever talks is big, the other
+  // a thin strip); "grid" gives every person a tile of the same size. Also: speaker, single-speaker, grid-light...
+  const layout = /^[a-z][a-z-]{1,30}$/.test(env.RECORDING_LAYOUT || '') ? env.RECORDING_LAYOUT : 'grid';
   // Video is recorded in short chunks (5 seconds by default) that are uploaded while the call is still going, so a
   // crash or a lost connection loses at most a few seconds, and a long call never has to fit in one big file.
   // When the call ends the chunks are joined into one file (see cloudinaryArchive.js). Audio stays one small file.
@@ -103,6 +106,7 @@ function createRecordingService({
       const options = {audioOnly: mode === 'audio'};
       if (mode === 'video') {
         options.encodingOptions = videoEncoding;
+        options.layout = layout;
       }
       const info = await egress.startRoomCompositeEgress(call.room, output, options);
       await store.insert({
