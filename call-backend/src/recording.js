@@ -1,5 +1,13 @@
 const {EgressClient} = require('livekit-server-sdk');
-const {EgressStatus, EncodedFileOutput, EncodedFileType, EncodingOptions, S3Upload} = require('@livekit/protocol');
+const {
+  EgressStatus,
+  EncodedFileOutput,
+  EncodedFileType,
+  EncodingOptions,
+  S3Upload,
+  SegmentedFileOutput,
+  SegmentedFileProtocol,
+} = require('@livekit/protocol');
 const {monthKey} = require('./recordingStore');
 
 // Call recording. LiveKit Egress records the call's room and uploads the file straight to our
@@ -42,6 +50,11 @@ function createRecordingService({
     videoBitrate: number(env.RECORDING_VIDEO_KBPS, 150, 50, 5000),
     audioBitrate: number(env.RECORDING_AUDIO_KBPS, 32, 16, 128),
   });
+  // Video is recorded in short chunks (5 seconds by default) that are uploaded while the call is still going, so a
+  // crash or a lost connection loses at most a few seconds, and a long call never has to fit in one big file.
+  // When the call ends the chunks are joined into one file (see cloudinaryArchive.js). Audio stays one small file.
+  const segmentSeconds = number(env.RECORDING_SEGMENT_SECONDS, 5, 2, 30);
+  const chunked = mode === 'video' && env.RECORDING_CHUNKS !== 'false';
   // LiveKit's free plan includes about 60 recording minutes a month, so stop a little before that
   const monthlyLimitSeconds = (Number(env.RECORDING_MONTHLY_MINUTES) || 50) * 60;
   const pollMs = Number(env.RECORDING_POLL_MS) || 2000;
@@ -50,8 +63,11 @@ function createRecordingService({
   const available =
     env.RECORDING_ENABLED !== 'false' && !!(livekitConfigured && endpoint && accessKey && secret && bucket && egress);
 
+  const baseKey = (callId, now) => `recordings/${now.getUTCFullYear()}/${pad(now.getUTCMonth() + 1)}/${callId}-${now.getTime()}`;
+  // One file for audio; for chunked video a folder named after the call, and the key is its playlist
   const objectKey = (callId, now = new Date()) =>
-    `recordings/${now.getUTCFullYear()}/${pad(now.getUTCMonth() + 1)}/${callId}-${now.getTime()}.${mode === 'audio' ? 'ogg' : 'mp4'}`;
+    chunked ? `${baseKey(callId, now)}/playlist.m3u8` : `${baseKey(callId, now)}.${mode === 'audio' ? 'ogg' : 'mp4'}`;
+  const isChunked = key => !!key && key.endsWith('.m3u8');
 
   // Starts recording the call's room. Returns {ok: true, id} or {ok: false, error}.
   async function start(call, {requestedBy, allowedBy}) {
@@ -65,14 +81,25 @@ function createRecordingService({
     const now = new Date();
     const key = objectKey(call.id, now);
     try {
-      const output = new EncodedFileOutput({
-        fileType: mode === 'audio' ? EncodedFileType.OGG : EncodedFileType.MP4,
-        filepath: key,
-        output: {
-          case: 's3',
-          value: new S3Upload({accessKey, secret, region, endpoint, bucket, forcePathStyle: true}),
-        },
-      });
+      const s3Output = {
+        case: 's3',
+        value: new S3Upload({accessKey, secret, region, endpoint, bucket, forcePathStyle: true}),
+      };
+      const folder = key.slice(0, key.lastIndexOf('/') + 1);
+      const output = chunked
+        ? new SegmentedFileOutput({
+            protocol: SegmentedFileProtocol.HLS_PROTOCOL,
+            filenamePrefix: `${folder}part`, // pieces are named part_00000.ts, part_00001.ts, ...
+            playlistName: key,
+            livePlaylistName: `${folder}live.m3u8`,
+            segmentDuration: segmentSeconds,
+            output: s3Output,
+          })
+        : new EncodedFileOutput({
+            fileType: mode === 'audio' ? EncodedFileType.OGG : EncodedFileType.MP4,
+            filepath: key,
+            output: s3Output,
+          });
       const options = {audioOnly: mode === 'audio'};
       if (mode === 'video') {
         options.encodingOptions = videoEncoding;
@@ -118,7 +145,7 @@ function createRecordingService({
         log(`could not check recording ${id}: ${e.message}`);
       }
       if (info && info.status === EgressStatus.EGRESS_COMPLETE) {
-        const file = info.fileResults?.[0];
+        const file = info.fileResults?.[0] || info.segmentResults?.[0]; // chunked recordings report segmentResults
         const details = {
           status: 'complete',
           size_bytes: file ? Number(file.size) : null,
@@ -131,6 +158,11 @@ function createRecordingService({
       }
       if (info && (info.status === EgressStatus.EGRESS_FAILED || info.status === EgressStatus.EGRESS_ABORTED)) {
         await store.update(id, {status: 'failed', error: info.error || 'recording failed', ended_at: new Date().toISOString()});
+        // A chunked recording that stopped early still has its uploaded pieces: keep what was recorded
+        const row = await store.get(id);
+        if (isChunked(row?.object_key)) {
+          await moveToCloudinary(id, undefined, {salvage: true});
+        }
         return 'failed';
       }
       await sleepFn(pollMs);
@@ -142,7 +174,7 @@ function createRecordingService({
   // The file is now in the R2 staging bucket. If Cloudinary is set up, compress it, copy it there and clear R2.
   // If that fails the file simply stays in R2 and the row says so (and it is tried again later).
   const inProgress = new Set(); // recordings being moved right now, so none is moved twice
-  async function moveToCloudinary(id, sizeBytes) {
+  async function moveToCloudinary(id, sizeBytes, {salvage = false} = {}) {
     if (!archiver?.available || inProgress.has(id)) {
       return;
     }
@@ -161,6 +193,7 @@ function createRecordingService({
       });
       if (result.ok) {
         await store.update(id, {
+          ...(salvage ? {status: 'partial'} : {}), // the call's recording stopped early; this is the part that was saved
           destination: 'cloudinary',
           cloudinary_public_id: result.publicId,
           cloudinary_resource_type: result.resourceType,
@@ -171,7 +204,8 @@ function createRecordingService({
           error: null,
         });
         log(`recording ${id} stored in Cloudinary (${sizeBytes ?? '?'} -> ${result.bytes ?? '?'} bytes${result.compressed ? ', compressed' : ''})`);
-      } else {
+      } else if (!salvage) {
+        // (when salvaging, the recording's own failure message is kept instead)
         await store.update(id, {error: `Cloudinary copy failed (${result.error}); the file is still in R2`});
       }
     } finally {
@@ -196,6 +230,7 @@ function createRecordingService({
   return {
     available,
     mode,
+    chunked,
     destination: archiver?.available ? 'cloudinary' : 'r2',
     compression: !!(archiver?.available && archiver.compression),
     start,

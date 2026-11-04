@@ -56,6 +56,13 @@ CF_API_TOKEN=...
 RECORDING_MODE=audio
 ```
 
+With `RECORDING_MODE=video` the call is recorded in **5-second chunks** (`RECORDING_SEGMENT_SECONDS`) inside a folder
+named after the call, for example `recordings/2026/11/<callId>-<time>/part_00000.ts`. Each chunk is uploaded while the
+call is still going, so a crash or a lost connection loses at most a few seconds. When the call ends the backend joins
+the chunks into one MP4 (no re-encoding), stores it in Cloudinary and clears the folder. If the recording stops early,
+the chunks already uploaded are still saved (the details row shows status `partial`). Set `RECORDING_CHUNKS=false` for
+one single file. Audio recordings are always one small file.
+
 Never put these in the app, in git or in chat. Then restart/redeploy. Check
 `https://atiyaherbs-calls.onrender.com/health`: it should show `"recordingAvailable":true` and
 `"recordingDetailsStore":"d1"`. If it shows `"memory"`, the three Cloudflare D1 values are missing.

@@ -1,6 +1,26 @@
-const {DeleteObjectCommand, GetObjectCommand, S3Client} = require('@aws-sdk/client-s3');
+const {spawn: nodeSpawn} = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const {pipeline} = require('node:stream/promises');
+const {DeleteObjectCommand, DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, S3Client} = require('@aws-sdk/client-s3');
 const {v2: cloudinaryV2} = require('cloudinary');
 const {createCompressor} = require('./compress');
+
+// Joins the .ts pieces of a chunked recording into one MP4 without re-encoding (fast, almost no CPU)
+function ffmpegRemux(inputFile, outputFile, {env = process.env, spawn = nodeSpawn} = {}) {
+  return new Promise((resolve, reject) => {
+    const binary = env.FFMPEG_PATH || 'ffmpeg';
+    const args = ['-hide_banner', '-loglevel', 'error', '-y', '-i', inputFile, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', '-movflags', '+faststart', outputFile];
+    const child = spawn(binary, args, {stdio: ['ignore', 'ignore', 'pipe']});
+    let errors = '';
+    child.stderr.on('data', chunk => {
+      errors = (errors + chunk).slice(-2000);
+    });
+    child.on('error', error => reject(new Error(`could not run ${binary}: ${error.message}`)));
+    child.on('close', code => (code === 0 ? resolve() : reject(new Error(`${binary} exited with code ${code}: ${errors.trim()}`))));
+  });
+}
 
 // Moves a finished recording from the R2 staging bucket to Cloudinary, making it smaller on the way.
 //
@@ -12,7 +32,14 @@ const {createCompressor} = require('./compress');
 // Audio is stored under Cloudinary's "video" resource type (that is how Cloudinary holds audio).
 // By default files use delivery type "authenticated": they cannot be opened without a signed link.
 
-function createCloudinaryArchiver({env = process.env, s3 = null, cloudinary = cloudinaryV2, compressor = createCompressor({env}), log = () => {}} = {}) {
+function createCloudinaryArchiver({
+  env = process.env,
+  s3 = null,
+  cloudinary = cloudinaryV2,
+  compressor = createCompressor({env}),
+  remux = (input, output) => ffmpegRemux(input, output, {env}),
+  log = () => {},
+} = {}) {
   // Cloudinary's dashboard gives one variable, CLOUDINARY_URL=cloudinary://<key>:<secret>@<cloud name>;
   // the three separate variables also work and win if both are set
   // (a value like <your_api_key> is the unfilled placeholder from the dashboard, not a real login)
@@ -92,11 +119,85 @@ function createCloudinaryArchiver({env = process.env, s3 = null, cloudinary = cl
     return upload.value;
   }
 
+  // A chunked recording is a folder of short .ts pieces in the staging bucket (objectKey is its playlist). The pieces are
+  // joined into one MP4 (no re-encoding; they were already recorded small), uploaded to Cloudinary as one file, and the
+  // folder is then cleared. If the join fails, the joined .ts stream is uploaded instead so nothing is lost.
+  const isChunked = objectKey => objectKey.endsWith('.m3u8');
+
+  async function listPieces(client, bucket, prefix) {
+    const keys = [];
+    let token;
+    do {
+      const page = await client.send(new ListObjectsV2Command({Bucket: bucket, Prefix: prefix, ContinuationToken: token}));
+      keys.push(...(page.Contents || []).map(item => item.Key));
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return keys;
+  }
+
+  async function archiveChunked(client, {bucket, objectKey, callId}) {
+    const prefix = objectKey.slice(0, objectKey.lastIndexOf('/') + 1);
+    const allKeys = await listPieces(client, bucket, prefix);
+    const pieces = allKeys.filter(key => key.endsWith('.ts')).sort(); // zero-padded numbers, so name order is time order
+    if (!pieces.length) {
+      return {ok: false, error: 'no-segments'};
+    }
+
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'recording-'));
+    try {
+      const joined = path.join(dir, 'joined.ts');
+      for (const key of pieces) {
+        const piece = await client.send(new GetObjectCommand({Bucket: bucket, Key: key}));
+        await pipeline(piece.Body, fs.createWriteStream(joined, {flags: 'a'})); // .ts pieces can simply be appended
+      }
+      let file = joined;
+      try {
+        const mp4 = path.join(dir, 'recording.mp4');
+        await remux(joined, mp4);
+        file = mp4;
+      } catch (e) {
+        log(`could not join the recording pieces into an MP4 (${e.message}); storing the joined .ts stream instead`);
+      }
+      const size = (await fs.promises.stat(file)).size;
+      if (size > maxBytes) {
+        return {ok: false, error: 'too-large'};
+      }
+
+      const uploaded = await uploadFrom(fs.createReadStream(file), `${callId}-${Date.now()}`);
+      if (!keepStagingCopy) {
+        for (let i = 0; i < allKeys.length; i += 1000) {
+          await client
+            .send(new DeleteObjectsCommand({Bucket: bucket, Delete: {Objects: allKeys.slice(i, i + 1000).map(Key => ({Key})), Quiet: true}}))
+            .catch(e => log(`could not delete the staging pieces under ${prefix}: ${e.message}`));
+        }
+      }
+      return {
+        ok: true,
+        publicId: uploaded.public_id,
+        bytes: uploaded.bytes,
+        compressed: false, // recorded small from the start, so there is nothing more to shrink here
+        resourceType: uploaded.resource_type || 'video',
+        deliveryType: uploaded.type || deliveryType,
+        pieces: pieces.length,
+      };
+    } finally {
+      await fs.promises.rm(dir, {recursive: true, force: true}).catch(() => {});
+    }
+  }
+
   // Copies `objectKey` from the staging bucket to Cloudinary (compressed when possible). Returns
   // {ok: true, publicId, bytes, compressed, resourceType, deliveryType} or {ok: false, error}.
   async function archive({bucket, objectKey, callId, sizeBytes, mode = 'audio'}) {
     if (!available) {
       return {ok: false, error: 'not-configured'};
+    }
+    if (isChunked(objectKey)) {
+      try {
+        return await archiveChunked(stagingClient(), {bucket, objectKey, callId});
+      } catch (e) {
+        log(`could not copy the recording to Cloudinary: ${e.message || JSON.stringify(e)}`);
+        return {ok: false, error: 'upload-failed'};
+      }
     }
     const originalTooLarge = !!sizeBytes && sizeBytes > maxBytes;
     // A big original can still fit once compressed, so only refuse it when compression is off

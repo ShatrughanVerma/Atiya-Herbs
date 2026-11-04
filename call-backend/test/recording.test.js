@@ -112,6 +112,77 @@ test('video recordings ask LiveKit for small output (360p, 15 fps, low bitrate),
   );
 });
 
+test('video is recorded in 5 second chunks inside a folder named after the call; audio and RECORDING_CHUNKS=false stay one file', async () => {
+  const recordOnce = async env => {
+    clients.splice(0).forEach(c => c.disconnect());
+    await new Promise(resolve => server.close(resolve));
+    await start({...ENV, ...env});
+    const {a, b, callId} = await connectedCall();
+    await emitAck(a, 'recording:request', {callId});
+    const on = once(a, 'recording:state');
+    b.emit('recording:respond', {callId, allow: true});
+    await on;
+    return {output: egress.started[0].output, callId, row: await store.get('EG_1')};
+  };
+
+  const {output, callId, row} = await recordOnce({RECORDING_MODE: 'video'});
+  assert.equal(output.constructor.name, 'SegmentedFileOutput');
+  assert.equal(output.segmentDuration, 5);
+  const folder = new RegExp(`^recordings/\\d{4}/\\d{2}/${callId}-\\d+/`);
+  assert.match(output.filenamePrefix, folder);
+  assert.equal(output.playlistName, `${output.filenamePrefix.replace(/part$/, '')}playlist.m3u8`);
+  assert.equal(output.output.case, 's3');
+  assert.equal(row.object_key, output.playlistName); // the row points at the playlist, which marks it as chunked
+
+  assert.equal((await recordOnce({RECORDING_MODE: 'video', RECORDING_SEGMENT_SECONDS: '10'})).output.segmentDuration, 10);
+  assert.equal((await recordOnce({RECORDING_MODE: 'video', RECORDING_SEGMENT_SECONDS: 'junk'})).output.segmentDuration, 5);
+
+  const single = await recordOnce({RECORDING_MODE: 'video', RECORDING_CHUNKS: 'false'});
+  assert.equal(single.output.constructor.name, 'EncodedFileOutput');
+  assert.match(single.output.filepath, /\.mp4$/);
+
+  const audio = await recordOnce({RECORDING_MODE: 'audio'});
+  assert.equal(audio.output.constructor.name, 'EncodedFileOutput');
+  assert.match(audio.output.filepath, /\.ogg$/);
+});
+
+test('if a chunked recording fails half-way, the pieces already uploaded are still saved', async () => {
+  const archived = [];
+  const archiver = {
+    available: true,
+    compression: false,
+    async archive(args) {
+      archived.push(args);
+      return {ok: true, publicId: 'atiyaherbs/call-recordings/x', bytes: 1234, compressed: false, resourceType: 'video', deliveryType: 'authenticated'};
+    },
+  };
+  clients.splice(0).forEach(c => c.disconnect());
+  await new Promise(resolve => server.close(resolve));
+  store = new MemoryStore();
+  egress = fakeEgress();
+  egress.nextStatus = EgressStatus.EGRESS_FAILED;
+  ({server} = createCallBackend({...ENV, RECORDING_MODE: 'video'}, () => {}, {store, egress, archiver}));
+  server.listen(0);
+  await once(server, 'listening');
+  url = `http://127.0.0.1:${server.address().port}`;
+
+  const {a, b, callId} = await connectedCall();
+  await emitAck(a, 'recording:request', {callId});
+  const on = once(a, 'recording:state');
+  b.emit('recording:respond', {callId, allow: true});
+  await on;
+  const off = once(a, 'recording:state');
+  a.emit('recording:stop', {callId});
+  await off;
+  await wait(200);
+
+  const row = await store.get('EG_1');
+  assert.equal(archived.length, 1);
+  assert.match(archived[0].objectKey, /playlist\.m3u8$/);
+  assert.deepEqual([row.status, row.destination, row.cloudinary_public_id], ['partial', 'cloudinary', 'atiyaherbs/call-recordings/x']);
+  assert.equal(row.error, null);
+});
+
 test('audio recordings do not carry video settings', async () => {
   const {a, b, callId} = await connectedCall();
   await emitAck(a, 'recording:request', {callId});

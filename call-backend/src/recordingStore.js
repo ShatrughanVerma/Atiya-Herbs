@@ -101,7 +101,7 @@ class MemoryStore {
   // Finished recordings that are still only in R2 and are worth another try (not the ones Cloudinary can never take)
   async listPendingArchive(limit = 20) {
     return [...this.rows.values()]
-      .filter(row => row.status === 'complete' && row.destination === 'r2' && !row.cloudinary_public_id && !(row.error || '').includes('too-large'))
+      .filter(row => row.status === 'complete' && row.destination === 'r2' && !row.cloudinary_public_id && !/too-large|no-segments/.test(row.error || ''))
       .slice(0, limit)
       .map(row => row.id);
   }
@@ -179,7 +179,7 @@ class D1Store {
 
   async listPendingArchive(limit = 20) {
     const rows = await this.query(
-      "SELECT id FROM call_recordings WHERE status = 'complete' AND destination = 'r2' AND cloudinary_public_id IS NULL AND (error IS NULL OR error NOT LIKE '%too-large%') ORDER BY created_at LIMIT ?",
+      "SELECT id FROM call_recordings WHERE status = 'complete' AND destination = 'r2' AND cloudinary_public_id IS NULL AND (error IS NULL OR (error NOT LIKE '%too-large%' AND error NOT LIKE '%no-segments%')) ORDER BY created_at LIMIT ?",
       [limit],
     );
     return rows.map(row => row.id);

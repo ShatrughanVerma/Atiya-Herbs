@@ -197,6 +197,68 @@ test('if compression fails half-way, the incomplete upload is removed and the or
   assert.deepEqual(s3.sent, ['GetObjectCommand', 'GetObjectCommand', 'DeleteObjectCommand']);
 });
 
+// ---- Chunked (segmented) recordings ----
+
+const PREFIX = 'recordings/2026/11/c1-1/';
+const chunkedS3 = pieces => ({
+  sent: [],
+  deleted: [],
+  async send(command) {
+    const name = command.constructor.name;
+    this.sent.push(name);
+    if (name === 'ListObjectsV2Command') {
+      return {Contents: Object.keys(pieces).map(Key => ({Key})), IsTruncated: false};
+    }
+    if (name === 'GetObjectCommand') {
+      return {Body: Readable.from([Buffer.from(pieces[command.input.Key])])};
+    }
+    if (name === 'DeleteObjectsCommand') {
+      this.deleted.push(...command.input.Delete.Objects.map(o => o.Key));
+    }
+    return {};
+  },
+});
+const CHUNKED_ARGS = {bucket: 'staging-bucket', objectKey: `${PREFIX}playlist.m3u8`, callId: 'c1', mode: 'video'};
+const joinWithMarker = (input, output) => require('node:fs').promises.readFile(input, 'utf8').then(text => require('node:fs').promises.writeFile(output, `MP4[${text}]`));
+
+test('a chunked recording is joined in order into one file, uploaded once, and the folder is cleared', async () => {
+  // keys are given out of order on purpose: the pieces must be joined by name, not by listing order
+  const s3 = chunkedS3({[`${PREFIX}part_00002.ts`]: 'C', [`${PREFIX}playlist.m3u8`]: '#EXTM3U', [`${PREFIX}part_00000.ts`]: 'A', [`${PREFIX}part_00001.ts`]: 'B', [`${PREFIX}live.m3u8`]: '#EXTM3U'});
+  const cloudinary = fakeCloudinary();
+  const archiver = createCloudinaryArchiver({env: ENV, s3, cloudinary, remux: joinWithMarker});
+
+  const result = await archiver.archive(CHUNKED_ARGS);
+  assert.deepEqual([result.ok, result.pieces], [true, 3]);
+  assert.equal(cloudinary.uploads.length, 1);
+  assert.equal(cloudinary.uploads[0].body, 'MP4[ABC]');
+  assert.equal(cloudinary.uploads[0].options.transformation, undefined); // already recorded small, nothing more to do
+  assert.equal(s3.deleted.length, 5); // every piece and both playlists are removed afterwards
+});
+
+test('if joining into an MP4 fails, the joined stream is stored instead of losing the recording', async () => {
+  const s3 = chunkedS3({[`${PREFIX}part_00000.ts`]: 'A', [`${PREFIX}part_00001.ts`]: 'B'});
+  const cloudinary = fakeCloudinary();
+  const logs = [];
+  const archiver = createCloudinaryArchiver({env: ENV, s3, cloudinary, remux: async () => { throw new Error('ffmpeg missing'); }, log: m => logs.push(m)});
+
+  const result = await archiver.archive(CHUNKED_ARGS);
+  assert.equal(result.ok, true);
+  assert.equal(cloudinary.uploads[0].body, 'AB');
+  assert.match(logs[0], /could not join the recording pieces into an MP4 \(ffmpeg missing\)/);
+});
+
+test('a chunked recording with no pieces, or one that is too big, is reported and nothing is uploaded or deleted', async () => {
+  const empty = chunkedS3({[`${PREFIX}playlist.m3u8`]: '#EXTM3U'});
+  const cloudinary = fakeCloudinary();
+  assert.deepEqual(await createCloudinaryArchiver({env: ENV, s3: empty, cloudinary, remux: joinWithMarker}).archive(CHUNKED_ARGS), {ok: false, error: 'no-segments'});
+
+  const big = chunkedS3({[`${PREFIX}part_00000.ts`]: 'x'.repeat(2 * 1024 * 1024)});
+  const result = await createCloudinaryArchiver({env: {...ENV, CLOUDINARY_MAX_MB: '1'}, s3: big, cloudinary, remux: joinWithMarker}).archive(CHUNKED_ARGS);
+  assert.deepEqual(result, {ok: false, error: 'too-large'});
+  assert.equal(cloudinary.uploads.length, 0);
+  assert.deepEqual(big.deleted, []);
+});
+
 test('RECORDING_COMPRESS=cloudinary: a video is uploaded as it is with a Cloudinary incoming transformation, no ffmpeg', async () => {
   const cloudinary = fakeCloudinary();
   const env = {...ENV, RECORDING_COMPRESS: 'cloudinary'};
