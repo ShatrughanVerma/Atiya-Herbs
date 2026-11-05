@@ -80,9 +80,10 @@ android {
     namespace "com.atiyaherbs"
 
     // Agora's SDK ships many optional extensions (face tracking, beauty, lip sync, AV1, spatial audio, ...), about
-    // 35 MB. A one-to-one call does not load them, so they are left out of the app. The core libraries
-    // (libagora-rtc-sdk, ffmpeg, fdkaac, soundtouch, video_encoder_extension) stay. If a feature that needs one is
-    // added later (for example a virtual background), remove that line from this list.
+    // 35 MB. Calls and meetings do not load them, so they are left out of the app. The core libraries
+    // (libagora-rtc-sdk, ffmpeg, fdkaac, soundtouch, video_encoder_extension) and the screen-capture extension
+    // (meeting screen sharing) stay. If a feature that needs one is added later (for example a virtual
+    // background), remove that line from this list.
     packaging {
         jniLibs {
             excludes += [
@@ -94,7 +95,6 @@ android {
                 '**/libagora_face_capture_extension.so',
                 '**/libagora_face_detection_extension.so',
                 '**/libagora_lip_sync_extension.so',
-                '**/libagora_screen_capture_extension.so',
                 '**/libagora_segmentation_extension.so',
                 '**/libagora_spatial_audio_extension.so',
                 '**/libagora_video_av1_encoder_extension.so',

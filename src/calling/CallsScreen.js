@@ -241,15 +241,24 @@ export default function CallsScreen({ navigation }) {
         title="Calls"
         navigation={navigation}
         right={
-          history.length > 0 ? (
+          <View style={styles.headerButtons}>
             <Pressable
               style={styles.headerBtn}
-              onPress={confirmClear}
-              accessibilityLabel="Clear call log"
+              onPress={() => navigation.navigate('Meetings')}
+              accessibilityLabel="Group meetings"
             >
-              <Icon name="delete-outline" size={22} color={colors.text} />
+              <Icon name="account-group-outline" size={24} color={colors.text} />
             </Pressable>
-          ) : undefined
+            {history.length > 0 && (
+              <Pressable
+                style={styles.headerBtn}
+                onPress={confirmClear}
+                accessibilityLabel="Clear call log"
+              >
+                <Icon name="delete-outline" size={22} color={colors.text} />
+              </Pressable>
+            )}
+          </View>
         }
       />
 
@@ -338,6 +347,7 @@ export default function CallsScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+  headerButtons: { flexDirection: 'row', alignItems: 'center' },
   headerBtn: {
     width: 40,
     height: 40,

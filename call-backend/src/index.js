@@ -5,6 +5,7 @@ const {Server} = require('socket.io');
 const {attachSignaling} = require('./signaling');
 const {createProviders} = require('./providers');
 const {createInvites} = require('./invites');
+const {createMeetings} = require('./meetings');
 const {createRecordingStore} = require('./recordingStore');
 const {createEgressClient, createRecordingService} = require('./recording');
 const {createCloudinaryArchiver} = require('./cloudinaryArchive');
@@ -27,13 +28,29 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
     log,
   });
 
+  // meetings are made after signaling (they share its connection login), but signaling must know who is in one
+  const meetingHooks = {isInMeeting: () => false};
   const state = attachSignaling(io, {
     tokens,
     recording,
+    isInMeeting: userId => meetingHooks.isInMeeting(userId),
     ringTimeoutMs: Number(env.RING_TIMEOUT_MS) || 45000,
     reconnectGraceMs: Number(env.RECONNECT_GRACE_MS) || 15000,
     log,
   });
+
+  // Group video meetings on Agora (separate from the one-to-one LiveKit calls above)
+  const meetings = createMeetings({
+    io,
+    agora: tokens.agora,
+    store,
+    isInCall: userId => !!state.users.get(userId)?.callId,
+    env,
+    log,
+    now: overrides.now,
+  });
+  meetingHooks.isInMeeting = meetings.isInMeeting;
+  app.use(meetings.router);
 
   // Call links that work in a browser without the app (Agora, independent of the app's own calling)
   const invites = createInvites({env, agora: tokens.agora, now: overrides.now});
@@ -54,11 +71,12 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
       recordingCompression: recording.compression,
       recordingDetailsStore: store.kind,
       online: [...state.users.values()].filter(u => u.socketId).length,
+      meetings: meetings.liveCount(),
       calls: state.calls.size,
     });
   });
 
-  return {app, server, io, state, tokens, store, recording};
+  return {app, server, io, state, tokens, store, recording, meetings};
 }
 
 const lanAddresses = () =>

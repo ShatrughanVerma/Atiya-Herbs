@@ -6,6 +6,8 @@ import {AuthProvider} from './src/context/AuthContext';
 import {CartProvider} from './src/context/CartContext';
 import {CallProvider} from './src/calling/CallContext';
 import CallOverlay from './src/calling/CallOverlay';
+import {MeetingProvider} from './src/meetings/MeetingContext';
+import MeetingRoom from './src/meetings/MeetingRoom';
 
 export default function App() {
   return (
@@ -14,9 +16,13 @@ export default function App() {
       <AuthProvider>
         <CartProvider>
           <CallProvider>
-            <AppNavigator />
-            {/* Above every screen, so calls ring and continue wherever the user is */}
-            <CallOverlay />
+            <MeetingProvider>
+              <AppNavigator />
+              {/* Above every screen, so calls ring and continue wherever the user is */}
+              <CallOverlay />
+              {/* Group meetings (Agora), also above every screen while you are in one */}
+              <MeetingRoom />
+            </MeetingProvider>
           </CallProvider>
         </CartProvider>
       </AuthProvider>

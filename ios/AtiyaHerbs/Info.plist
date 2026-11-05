@@ -35,13 +35,22 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Atiya Herbs uses the camera to take your profile photo and for video calls.</string>
+	<string>Atiya Herbs uses the camera to take your profile photo and for video calls and meetings.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Atiya Herbs uses the microphone for voice and video calls.</string>
+	<string>Atiya Herbs uses the microphone for voice and video calls and meetings.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Atiya Herbs needs access to your photos to set your profile photo.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Atiya Herbs uses your location to show the clinics nearest to you.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>atiyaherbs</string>
+			</array>
+		</dict>
+	</array>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

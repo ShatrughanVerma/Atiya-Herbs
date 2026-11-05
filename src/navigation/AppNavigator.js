@@ -24,6 +24,7 @@ import OrderSuccessScreen from '../screens/shop/OrderSuccessScreen';
 import OrdersScreen from '../screens/shop/OrdersScreen';
 import WishlistScreen from '../screens/shop/WishlistScreen';
 import CallsScreen from '../calling/CallsScreen';
+import MeetingsScreen from '../meetings/MeetingsScreen';
 import {useCart} from '../context/CartContext';
 import {colors} from '../theme';
 
@@ -110,6 +111,7 @@ export default function AppNavigator() {
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         <Stack.Screen name="SignUp" component={SignUpScreen} />
         <Stack.Screen name="Calls" component={CallsScreen} />
+        <Stack.Screen name="Meetings" component={MeetingsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

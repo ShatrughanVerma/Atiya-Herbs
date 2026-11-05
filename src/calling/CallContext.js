@@ -89,6 +89,8 @@ export function CallProvider({ children }) {
   const myName = user?.name || myId;
 
   const [serverConnected, setServerConnected] = useState(false);
+  // The connection to the call server, shared with the group meetings (src/meetings): one login, one connection
+  const [socketForMeetings, setSocketForMeetings] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [call, setCall] = useState(null); // {id, peer: {id, name}, video, direction, status, connectedAt, endText}
   const [history, setHistory] = useState([]); // newest first: {id, peer, video, direction, outcome, at, duration}
@@ -713,6 +715,7 @@ export function CallProvider({ children }) {
       reconnectionDelayMax: 5000,
     });
     socketRef.current = socket;
+    setSocketForMeetings(socket);
 
     socket.on('connect', () => setServerConnected(true));
     socket.on('disconnect', () => setServerConnected(false));
@@ -816,6 +819,7 @@ export function CallProvider({ children }) {
       setCurrent(null);
       socket.disconnect();
       socketRef.current = null;
+      setSocketForMeetings(null);
       setServerConnected(false);
       setOnlineUsers([]);
       setRecordingAvailable(false);
@@ -835,6 +839,7 @@ export function CallProvider({ children }) {
     () => ({
       myId,
       serverConnected,
+      socket: socketForMeetings,
       onlineUsers,
       call,
       history,
@@ -864,6 +869,7 @@ export function CallProvider({ children }) {
     [
       myId,
       serverConnected,
+      socketForMeetings,
       onlineUsers,
       call,
       history,

@@ -33,6 +33,33 @@ const SCHEMA = [
   )`,
   'CREATE INDEX IF NOT EXISTS idx_call_recordings_call ON call_recordings (call_id)',
   'CREATE INDEX IF NOT EXISTS idx_call_recordings_created ON call_recordings (created_at)',
+  // Group meetings (see meetings.js): one row per meeting, one row each time someone joins it
+  `CREATE TABLE IF NOT EXISTS meetings (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    host_id TEXT NOT NULL,
+    host_name TEXT,
+    max_participants INTEGER,
+    status TEXT NOT NULL,
+    locked INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    ended_at TEXT,
+    ended_by TEXT,
+    peak_participants INTEGER NOT NULL DEFAULT 0
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_meetings_host ON meetings (host_id, created_at)',
+  `CREATE TABLE IF NOT EXISTS meeting_participants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    meeting_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    name TEXT,
+    role TEXT NOT NULL,
+    joined_at TEXT NOT NULL,
+    left_at TEXT,
+    removed INTEGER NOT NULL DEFAULT 0
+  )`,
+  'CREATE INDEX IF NOT EXISTS idx_meeting_participants_meeting ON meeting_participants (meeting_id)',
+  'CREATE INDEX IF NOT EXISTS idx_meeting_participants_user ON meeting_participants (user_id, joined_at)',
 ];
 
 // For a table created before these columns existed: add them (an "already exists" error is fine)
@@ -44,6 +71,8 @@ const MIGRATIONS = [
   'ALTER TABLE call_recordings ADD COLUMN original_size_bytes INTEGER',
   'ALTER TABLE call_recordings ADD COLUMN compressed INTEGER',
 ];
+
+const MEETING_COLUMNS = ['title', 'host_id', 'host_name', 'max_participants', 'status', 'locked', 'ended_at', 'ended_by', 'peak_participants'];
 
 const COLUMNS = [
   'id',
@@ -114,6 +143,50 @@ class MemoryStore {
       }
     }
     return total;
+  }
+
+  // ---- group meetings ----
+  async meetingCreate(meeting) {
+    this.meetingRows = this.meetingRows || new Map();
+    this.meetingRows.set(meeting.id, {locked: 0, peak_participants: 0, ...meeting});
+  }
+
+  async meetingUpdate(id, fields) {
+    const row = this.meetingRows?.get(id);
+    if (row) {
+      Object.assign(row, Object.fromEntries(Object.entries(fields).filter(([k]) => MEETING_COLUMNS.includes(k))));
+    }
+  }
+
+  async meetingGet(id) {
+    return this.meetingRows?.get(id) || null;
+  }
+
+  async participantJoined(row) {
+    this.participantRows = this.participantRows || [];
+    this.participantRows.push({removed: 0, left_at: null, ...row});
+  }
+
+  // Marks the person's open visit as finished (removed = 1 when the host took them out)
+  async participantLeft(meetingId, userId, leftAt, removed = false) {
+    const open = (this.participantRows || []).filter(r => r.meeting_id === meetingId && r.user_id === userId && !r.left_at);
+    for (const row of open) {
+      row.left_at = leftAt;
+      row.removed = removed ? 1 : 0;
+    }
+  }
+
+  async participantsOf(meetingId) {
+    return (this.participantRows || []).filter(r => r.meeting_id === meetingId);
+  }
+
+  // The meetings this person hosted or joined, newest first
+  async meetingsFor(userId, limit = 20) {
+    const ids = new Set((this.participantRows || []).filter(r => r.user_id === userId).map(r => r.meeting_id));
+    return [...(this.meetingRows?.values() || [])]
+      .filter(m => m.host_id === userId || ids.has(m.id))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit);
   }
 }
 
@@ -191,6 +264,56 @@ class D1Store {
       [`${month}%`],
     );
     return Number(rows[0]?.total || 0);
+  }
+
+  // ---- group meetings ----
+  async meetingCreate(meeting) {
+    const columns = ['id', 'created_at', ...MEETING_COLUMNS].filter(c => meeting[c] !== undefined);
+    await this.query(
+      `INSERT INTO meetings (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+      columns.map(c => meeting[c]),
+    );
+  }
+
+  async meetingUpdate(id, fields) {
+    const columns = Object.keys(fields).filter(c => MEETING_COLUMNS.includes(c));
+    if (!columns.length) {
+      return;
+    }
+    await this.query(`UPDATE meetings SET ${columns.map(c => `${c} = ?`).join(', ')} WHERE id = ?`, [
+      ...columns.map(c => fields[c]),
+      id,
+    ]);
+  }
+
+  async meetingGet(id) {
+    const rows = await this.query('SELECT * FROM meetings WHERE id = ?', [id]);
+    return rows[0] || null;
+  }
+
+  async participantJoined(row) {
+    await this.query(
+      'INSERT INTO meeting_participants (meeting_id, user_id, name, role, joined_at) VALUES (?, ?, ?, ?, ?)',
+      [row.meeting_id, row.user_id, row.name ?? null, row.role, row.joined_at],
+    );
+  }
+
+  async participantLeft(meetingId, userId, leftAt, removed = false) {
+    await this.query(
+      'UPDATE meeting_participants SET left_at = ?, removed = ? WHERE meeting_id = ? AND user_id = ? AND left_at IS NULL',
+      [leftAt, removed ? 1 : 0, meetingId, userId],
+    );
+  }
+
+  async participantsOf(meetingId) {
+    return this.query('SELECT * FROM meeting_participants WHERE meeting_id = ? ORDER BY joined_at', [meetingId]);
+  }
+
+  async meetingsFor(userId, limit = 20) {
+    return this.query(
+      'SELECT * FROM meetings WHERE host_id = ? OR id IN (SELECT meeting_id FROM meeting_participants WHERE user_id = ?) ORDER BY created_at DESC LIMIT ?',
+      [userId, userId, limit],
+    );
   }
 }
 

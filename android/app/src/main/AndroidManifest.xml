@@ -54,6 +54,13 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- A meeting link: atiyaherbs://meeting/abc-defg-hij opens the app and offers to join -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="atiyaherbs" android:host="meeting" />
+        </intent-filter>
       </activity>
     </application>
 </manifest>

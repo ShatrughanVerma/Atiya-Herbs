@@ -4,16 +4,16 @@ const crypto = require('node:crypto');
 // phone and, once they accept, gives both people a token for that call's own LiveKit room.
 //
 // Client → server
-//   call:start  {to, video}  (ack → {ok, callId} or {ok: false, error: 'offline'|'busy'|'in-call'|'self'|'not-configured'})
+//   call:start  {to, video}  (ack → {ok, callId} or {ok: false, error: 'offline'|'busy'|'in-call'|'in-meeting'|'self'|'not-configured'})
 //   call:accept {callId}     callee picks up
 //   call:reject {callId}     callee declines
 //   call:end    {callId}     either side hangs up (or the caller cancels while it rings)
+//   call:fallback {callId}   (ack {ok}) a phone that cannot connect through LiveKit asks for the call to be moved to
+//                            Agora; both people then get a new call:ready
 // Server → client
 //   session       {activeCallId}                    on every (re)connect
 //   users         [{id, name, busy}]                everyone online
 //   call:incoming {callId, from: {id, name}, video}
-//   call:fallback {callId} (ack {ok})               a phone that cannot connect through LiveKit asks for the call to
-//                                                   be moved to Agora; both then get a new call:ready
 //   call:ready    {callId, provider, ...}           both people, after accept: join the call. LiveKit sends
 //                                                   {serverUrl, token}; Agora sends {appId, channel, account, token}
 //   call:ended    {callId, reason: 'rejected'|'cancelled'|'no-answer'|'ended'|'disconnected'}
@@ -31,7 +31,7 @@ const NO_RECORDING = {available: false, start: async () => ({ok: false, error: '
 
 function attachSignaling(
   io,
-  {tokens, recording = NO_RECORDING, ringTimeoutMs = 45000, reconnectGraceMs = 15000, log = () => {}},
+  {tokens, recording = NO_RECORDING, ringTimeoutMs = 45000, reconnectGraceMs = 15000, isInMeeting = () => false, log = () => {}},
 ) {
   const users = new Map(); // userId -> {id, name, socketId, callId, graceTimer}
   const calls = new Map(); // callId -> {id, room, caller, callee, video, state: 'ringing'|'active', ringTimer}
@@ -57,7 +57,7 @@ function attachSignaling(
   const broadcastUsers = () => {
     io.emit(
       'users',
-      [...users.values()].filter(u => u.socketId).map(u => ({id: u.id, name: u.name, busy: !!u.callId})),
+      [...users.values()].filter(u => u.socketId).map(u => ({id: u.id, name: u.name, busy: !!u.callId || isInMeeting(u.id)})),
     );
   };
 
@@ -137,10 +137,14 @@ function attachSignaling(
       if (user.callId) {
         return reply({ok: false, error: 'in-call'});
       }
+      // the microphone is in use in a group meeting (meetings.js)
+      if (isInMeeting(me)) {
+        return reply({ok: false, error: 'in-meeting'});
+      }
       if (!callee?.socketId) {
         return reply({ok: false, error: 'offline'});
       }
-      if (callee.callId) {
+      if (callee.callId || isInMeeting(to)) {
         return reply({ok: false, error: 'busy'});
       }
       const id = crypto.randomUUID();
