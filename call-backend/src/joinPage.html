@@ -13,7 +13,7 @@
   body { background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; }
   header { padding: 14px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); background: var(--card); }
   header b { color: var(--green); font-size: 18px; }
-  main { flex: 1; display: flex; flex-direction: column; padding: 16px; gap: 14px; max-width: 1100px; width: 100%; margin: 0 auto; }
+  main { flex: 1; display: flex; flex-direction: column; padding: 16px; gap: 14px; max-width: 1200px; width: 100%; margin: 0 auto; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 22px; max-width: 420px; width: 100%; margin: 6vh auto 0; }
   h1 { margin: 0 0 4px; font-size: 22px; }
   p { margin: 0 0 14px; color: var(--muted); }
@@ -26,14 +26,16 @@
   .note { font-size: 13px; color: var(--muted); margin-top: 12px; }
   .error { color: var(--danger); font-weight: 600; margin-top: 12px; }
   #call { display: none; flex: 1; flex-direction: column; gap: 14px; }
-  /* Every person gets a tile of the same size */
-  #tiles { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 240px; }
-  @media (max-width: 640px) { #tiles { grid-template-columns: 1fr; grid-auto-rows: 1fr; } }
-  .tile { position: relative; background: #0b110d; border-radius: 16px; overflow: hidden; min-height: 200px; }
+  /* Every person gets a tile of the same size; the grid fits as many as are in the call */
+  #tiles { flex: 1; display: grid; gap: 12px; min-height: 240px; grid-template-columns: repeat(auto-fit, minmax(var(--min, 300px), 1fr)); grid-auto-rows: minmax(190px, 1fr); }
+  .tile { position: relative; background: #0b110d; border-radius: 16px; overflow: hidden; min-height: 190px; }
+  /* drawn above the video so the frame is not hidden by it */
+  .tile.speaking::after { content: ''; position: absolute; inset: 0; border: 3px solid var(--orange); border-radius: 16px; z-index: 3; pointer-events: none; }
   .tile .video { position: absolute; inset: 0; }
   .tile .video video { object-fit: cover !important; }
-  .tile .label { position: absolute; left: 10px; bottom: 10px; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; padding: 3px 10px; border-radius: 999px; z-index: 2; }
-  .tile .wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9db0a3; text-align: center; padding: 12px; }
+  .tile .label { position: absolute; left: 10px; bottom: 10px; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; padding: 3px 10px; border-radius: 999px; z-index: 2; }
+  .tile .wait { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #9db0a3; text-align: center; padding: 12px; }
+  .tile .avatar { width: 64px; height: 64px; border-radius: 50%; background: #1d3226; color: #cfe5d6; font-size: 28px; font-weight: 600; display: flex; align-items: center; justify-content: center; text-transform: uppercase; }
   #bar { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
   #status { text-align: center; color: var(--muted); font-size: 14px; min-height: 20px; }
 </style>
@@ -51,10 +53,7 @@
   </section>
 
   <section id="call">
-    <div id="tiles">
-      <div class="tile" id="localTile"><div class="video" id="localVideo"></div><div class="wait" id="localWait" hidden>Camera is off</div><span class="label" id="localLabel">You</span></div>
-      <div class="tile" id="remoteTile"><div class="video" id="remoteVideo"></div><div class="wait" id="remoteWait">Waiting for the other person to join...</div><span class="label" id="remoteLabel" hidden>Other person</span></div>
-    </div>
+    <div id="tiles"></div>
     <div id="status" role="status"></div>
     <div id="bar">
       <button id="mic" class="ghost">Mute</button>
@@ -69,7 +68,8 @@
 (function () {
   var code = location.pathname.split('/').filter(Boolean).pop();
   var $ = function (id) { return document.getElementById(id); };
-  var client, micTrack, camTrack, joined = false;
+  var client, micTrack, camTrack, joined = false, myAccount = '';
+  var tiles = {}; // uid -> {el, video, avatar, wait, label}; the local person is under myAccount
 
   AgoraRTC.setLogLevel(3);
 
@@ -83,6 +83,17 @@
   function lobbyError(text) { $('lobbyError').textContent = text || ''; }
   function status(text) { $('status').textContent = text || ''; }
 
+  // Everyone's name travels in their Agora account, after the dot, as base64url of the UTF-8 name
+  function nameOf(account) {
+    var s = String(account), i = s.indexOf('.');
+    if (i < 0) { return 'Guest'; }
+    try {
+      var b = s.slice(i + 1).replace(/-/g, '+').replace(/_/g, '/');
+      while (b.length % 4) { b += '='; }
+      return decodeURIComponent(escape(atob(b))) || 'Guest';
+    } catch (e) { return 'Guest'; }
+  }
+
   async function getJoinDetails(name) {
     var res = await fetch('/agora/join/' + encodeURIComponent(code), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name })
@@ -92,19 +103,66 @@
     return data;
   }
 
+  // ---- tiles ----
+  function layout() {
+    var n = Object.keys(tiles).length + 1; // everyone, plus the waiting tile when nobody else is here
+    // the minimum width of a tile: fewer people, bigger tiles
+    var min = n <= 2 ? 320 : n <= 4 ? 420 : n <= 6 ? 300 : n <= 9 ? 240 : 190;
+    if (window.innerWidth < 640 && n >= 3) { min = n <= 4 ? 150 : 140; }
+    $('tiles').style.setProperty('--min', min + 'px');
+  }
+  function makeTile(uid, label, camOn) {
+    var el = document.createElement('div'); el.className = 'tile';
+    var video = document.createElement('div'); video.className = 'video';
+    var wait = document.createElement('div'); wait.className = 'wait';
+    var avatar = document.createElement('div'); avatar.className = 'avatar'; avatar.textContent = (label || '?').charAt(0);
+    var note = document.createElement('div'); note.textContent = camOn ? '' : 'Camera is off';
+    wait.appendChild(avatar); wait.appendChild(note);
+    var tag = document.createElement('span'); tag.className = 'label'; tag.textContent = label;
+    el.appendChild(video); el.appendChild(wait); el.appendChild(tag);
+    $('tiles').appendChild(el);
+    tiles[uid] = { el: el, video: video, wait: wait, note: note, label: tag };
+    layout();
+    return tiles[uid];
+  }
+  function waitingTile(on) {
+    var existing = $('waitTile');
+    if (on && !existing) {
+      var el = document.createElement('div'); el.className = 'tile'; el.id = 'waitTile';
+      var w = document.createElement('div'); w.className = 'wait'; w.textContent = 'Waiting for others to join...';
+      el.appendChild(w); $('tiles').appendChild(el);
+    } else if (!on && existing) { existing.remove(); }
+  }
+  function count() {
+    var others = Object.keys(tiles).length - 1;
+    waitingTile(others === 0);
+    status(others === 0 ? '' : (others + 1) + ' people in this call');
+    layout();
+  }
+  function addRemote(user) {
+    var t = tiles[user.uid] || makeTile(user.uid, nameOf(user.uid), false);
+    count();
+    return t;
+  }
+  function showVideo(t, on) {
+    t.wait.style.display = on ? 'none' : 'flex';
+    if (!on) { t.video.innerHTML = ''; t.note.textContent = 'Camera is off'; }
+  }
+  async function takeMedia(user, mediaType) {
+    await client.subscribe(user, mediaType);
+    var t = addRemote(user);
+    if (mediaType === 'video' && user.videoTrack) { user.videoTrack.play(t.video); showVideo(t, true); }
+    if (mediaType === 'audio' && user.audioTrack) { user.audioTrack.play(); }
+  }
+
   async function startTracks() {
     // Join even if the camera or microphone is missing or refused
     try { micTrack = await AgoraRTC.createMicrophoneAudioTrack({ AEC: true, ANS: true, AGC: true }); } catch (e) { micTrack = null; }
     try { camTrack = await AgoraRTC.createCameraVideoTrack({ encoderConfig: '480p_1' }); } catch (e) { camTrack = null; }
-    if (camTrack) { camTrack.play('localVideo'); $('localWait').hidden = true; } else { $('localWait').hidden = false; $('cam').disabled = true; }
+    var me = tiles[myAccount];
+    if (camTrack) { camTrack.play(me.video); showVideo(me, true); } else { $('cam').disabled = true; }
     if (!micTrack) { $('mic').disabled = true; }
     if (!micTrack && !camTrack) { status('Camera and microphone are blocked, so others cannot see or hear you.'); }
-  }
-
-  function showRemote(user) {
-    $('remoteWait').hidden = true; $('remoteLabel').hidden = false;
-    if (user.videoTrack) { user.videoTrack.play('remoteVideo'); }
-    if (user.audioTrack) { user.audioTrack.play(); }
   }
 
   async function join() {
@@ -112,33 +170,45 @@
     $('join').disabled = true; lobbyError('');
     try {
       var d = await getJoinDetails(name);
-      $('localLabel').textContent = d.name;
+      myAccount = d.account;
       client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 
-      client.on('user-published', async function (user, mediaType) {
-        await client.subscribe(user, mediaType);
-        showRemote(user);
-      });
+      client.on('user-joined', function (user) { addRemote(user); });
+      client.on('user-published', function (user, mediaType) { takeMedia(user, mediaType); });
       client.on('user-unpublished', function (user, mediaType) {
-        if (mediaType === 'video') { $('remoteVideo').innerHTML = ''; $('remoteWait').hidden = false; $('remoteWait').textContent = 'Their camera is off'; }
+        var t = tiles[user.uid];
+        if (t && mediaType === 'video') { showVideo(t, false); }
       });
-      client.on('user-left', function () {
-        $('remoteVideo').innerHTML = ''; $('remoteLabel').hidden = true;
-        $('remoteWait').hidden = false; $('remoteWait').textContent = 'The other person left.';
+      client.on('user-left', function (user) {
+        var t = tiles[user.uid];
+        if (t) { t.el.remove(); delete tiles[user.uid]; count(); }
       });
       client.on('connection-state-change', function (now) {
-        if (now === 'RECONNECTING') { status('Reconnecting...'); } else if (now === 'CONNECTED') { status(''); }
+        if (now === 'RECONNECTING') { status('Reconnecting...'); } else if (now === 'CONNECTED') { count(); }
         if (now === 'DISCONNECTED' && joined) { status('Disconnected.'); }
+      });
+      // the person who is talking gets an orange frame
+      client.enableAudioVolumeIndicator();
+      client.on('volume-indicator', function (volumes) {
+        var top = null;
+        volumes.forEach(function (v) { if (v.level > 8 && (!top || v.level > top.level)) { top = v; } });
+        Object.keys(tiles).forEach(function (k) { tiles[k].el.classList.toggle('speaking', !!top && String(top.uid) === k); });
       });
 
       await client.join(d.appId, d.channel, d.token, d.account);
       joined = true;
       $('lobby').style.display = 'none'; $('call').style.display = 'flex';
+      makeTile(myAccount, d.name + ' (you)', false);
+      count();
       await startTracks();
       var tracks = [micTrack, camTrack].filter(Boolean);
       if (tracks.length) { await client.publish(tracks); }
-      // someone may already be in the call
-      client.remoteUsers.forEach(function (u) { if (u.hasVideo || u.hasAudio) { client.subscribe(u, u.hasVideo ? 'video' : 'audio').then(function () { showRemote(u); }); } });
+      // people who were already in the call
+      client.remoteUsers.forEach(function (u) {
+        addRemote(u);
+        if (u.hasVideo) { takeMedia(u, 'video'); }
+        if (u.hasAudio) { takeMedia(u, 'audio'); }
+      });
     } catch (e) {
       lobbyError(e && e.message ? e.message : 'Could not join. Please try again.');
       $('join').disabled = false;
@@ -150,6 +220,7 @@
     joined = false;
     [micTrack, camTrack].forEach(function (t) { if (t) { t.stop(); t.close(); } });
     try { if (client) { await client.leave(); } } catch (e) {}
+    $('tiles').innerHTML = ''; tiles = {};
     $('call').style.display = 'none'; $('lobby').style.display = 'block'; $('join').disabled = false;
     $('lobby').querySelector('h1').textContent = 'You left the call';
   }
@@ -166,8 +237,10 @@
     if (!camTrack) { return; }
     var off = camTrack.enabled; await camTrack.setEnabled(!off);
     this.textContent = off ? 'Camera on' : 'Camera off'; this.classList.toggle('off', off);
-    $('localWait').hidden = !off;
+    var me = tiles[myAccount];
+    if (me) { me.wait.style.display = off ? 'flex' : 'none'; }
   });
+  window.addEventListener('resize', layout);
   window.addEventListener('beforeunload', function () { if (client) { client.leave(); } });
 })();
 </script>

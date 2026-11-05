@@ -6,7 +6,7 @@ const express = require('express');
 // Call links that work on their own, without the app: someone makes an invite, and each person opens their link in
 // a browser and joins an Agora call. Nothing here depends on the app's signaling or on LiveKit.
 //
-//   POST /agora/invites         (needs the INVITE_KEY header) -> {room, expiresAt, host: {url}, guest: {url}}
+//   POST /agora/invites         (needs the INVITE_KEY header; body {people?}) -> {room, people, expiresAt, host: {url}, guest: {url}}
 //   GET  /join/<code>           the page the person opens
 //   POST /agora/join/<code>     {name} -> what the page needs to join (App ID, channel, token)
 //
@@ -30,6 +30,7 @@ function createInvites({env = process.env, agora, now = () => Date.now()}) {
   const key = (env.INVITE_KEY || '').trim();
   const ttlMs = (Number(env.INVITE_MINUTES) || 60) * 60_000;
   const maxJoins = Number(env.INVITE_MAX_JOINS) || 4; // per link, so a refresh or a dropped connection can rejoin
+  const maxPeople = Number(env.INVITE_MAX_PEOPLE) || 50; // the most a group link can allow
   const joins = new Map(); // code -> {count, expiresAt}: how many times each link was used (in memory only)
   const hits = new Map(); // ip -> request times, to slow down guessing and abuse
 
@@ -55,9 +56,9 @@ function createInvites({env = process.env, agora, now = () => Date.now()}) {
   };
 
   const sign = text => crypto.createHmac('sha256', key).update(text).digest('base64url');
-  // code = <payload>.<signature>, where payload is "room|role|expiresAt"
-  const makeCode = (room, role, expiresAt) => {
-    const payload = Buffer.from(`${room}|${role}|${expiresAt}`).toString('base64url');
+  // code = <payload>.<signature>, where payload is "room|role|expiresAt|uses" (uses = how many times it may be opened)
+  const makeCode = (room, role, expiresAt, uses) => {
+    const payload = Buffer.from(`${room}|${role}|${expiresAt}|${uses}`).toString('base64url');
     return `${payload}.${sign(payload)}`;
   };
   // The invite a code stands for, or null when it was not made by this server's key (or was changed)
@@ -72,11 +73,11 @@ function createInvites({env = process.env, agora, now = () => Date.now()}) {
     if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) {
       return null;
     }
-    const [room, role, expiresAt] = Buffer.from(payload, 'base64url').toString().split('|');
+    const [room, role, expiresAt, uses = maxJoins] = Buffer.from(payload, 'base64url').toString().split('|');
     if (!/^meet-[0-9a-f-]{36}$/.test(room) || !['host', 'guest'].includes(role) || !Number.isFinite(Number(expiresAt))) {
       return null;
     }
-    return {room, role, expiresAt: Number(expiresAt)};
+    return {room, role, expiresAt: Number(expiresAt), uses: Math.min(Math.max(Math.floor(Number(uses)) || maxJoins, 1), maxPeople)};
   };
 
   const router = express.Router();
@@ -93,12 +94,16 @@ function createInvites({env = process.env, agora, now = () => Date.now()}) {
       return res.status(401).json({error: 'unauthorized'});
     }
     sweep();
+    // A group link: `people` is how many times the guest link may be opened (a refresh counts again), so with
+    // people = 6 about 6 people can join one room. Without it the link allows maxJoins.
+    const wanted = Math.floor(Number(req.body?.people));
+    const people = Number.isFinite(wanted) && wanted >= 1 ? Math.min(wanted, maxPeople) : maxJoins;
     const room = `meet-${crypto.randomUUID()}`;
     const expiresAt = now() + ttlMs;
     const origin = (env.PUBLIC_URL || `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-    const out = {room, expiresAt: new Date(expiresAt).toISOString()};
+    const out = {room, people, expiresAt: new Date(expiresAt).toISOString()};
     for (const role of ['host', 'guest']) {
-      out[role] = {url: `${origin}/join/${makeCode(room, role, expiresAt)}`};
+      out[role] = {url: `${origin}/join/${makeCode(room, role, expiresAt, role === 'guest' ? people : maxJoins)}`};
     }
     res.status(201).json(out);
   });
@@ -120,15 +125,17 @@ function createInvites({env = process.env, agora, now = () => Date.now()}) {
       return res.status(410).json({error: 'expired'});
     }
     const used = joins.get(req.params.code) || {count: 0, expiresAt: invite.expiresAt};
-    if (used.count >= maxJoins) {
+    if (used.count >= invite.uses) {
       return res.status(403).json({error: 'used-up'});
     }
     const name = String(req.body?.name || '').trim().slice(0, 40) || (invite.role === 'host' ? 'Host' : 'Guest');
     used.count += 1;
     joins.set(req.params.code, used);
     try {
-      // a new account for each join, so two people never share one, and a rejoin is not mistaken for the first
-      const account = `${invite.role === 'host' ? 'h' : 'g'}-${crypto.randomBytes(6).toString('hex')}`;
+      // a new account for each join, so two people never share one, and a rejoin is not mistaken for the first.
+      // The person's name rides along after the dot (base64url, which Agora accepts in an account), so the others
+      // in the call can show it on their tile without anything else being sent.
+      const account = `${invite.role === 'host' ? 'h' : 'g'}-${crypto.randomBytes(6).toString('hex')}.${Buffer.from(name).toString('base64url')}`;
       const join = await agora.issue({identity: account, room: invite.room});
       res.set('Cache-Control', 'no-store').json({...join, name, role: invite.role});
     } catch {

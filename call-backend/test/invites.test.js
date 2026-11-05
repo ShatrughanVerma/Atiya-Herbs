@@ -58,7 +58,8 @@ test('joining gives an Agora token for that room only, and never the certificate
   const join = JSON.parse(text);
   assert.deepEqual([join.provider, join.appId, join.channel, join.name, join.role], ['agora', AGORA.AGORA_APP_ID, invite.room, 'Asha', 'guest']);
   assert.match(join.token, /^007/);
-  assert.match(join.account, /^g-[0-9a-f]{12}$/);
+  assert.match(join.account, /^g-[0-9a-f]{12}\.[\w-]+$/);
+  assert.equal(Buffer.from(join.account.split('.')[1], 'base64url').toString(), 'Asha'); // the name rides in the account
   assert.equal(text.includes(AGORA.AGORA_APP_CERTIFICATE), false);
 
   const host = await (await post(`/agora/join/${codeOf(invite.host)}`, {})).json();
@@ -124,4 +125,34 @@ test('the link opens the join page, which keeps no cache and loads the Agora bro
   const html = await res.text();
   assert.match(html, /agora-rtc-sdk-ng@4\.\d+\.\d+\/AgoraRTC_N-production\.js/);
   assert.equal(html.includes(AGORA.AGORA_APP_CERTIFICATE), false);
+});
+
+test('a group link: `people` says how many times the guest link may be opened, and it is capped', async () => {
+  const make = async body => (await (await post('/agora/invites', body, {'x-invite-key': ENV.INVITE_KEY})).json());
+
+  const group = await make({people: 6});
+  assert.equal(group.people, 6);
+  const guestCode = codeOf(group.guest);
+  for (let i = 0; i < 6; i++) {
+    assert.equal((await post(`/agora/join/${guestCode}`, {name: `P${i}`})).status, 200);
+  }
+  assert.equal((await post(`/agora/join/${guestCode}`, {})).status, 403); // the seventh is refused
+  // the host link is not used up by the guests, and keeps its own small limit
+  assert.equal((await post(`/agora/join/${codeOf(group.host)}`, {})).status, 200);
+
+  assert.equal((await make({})).people, 4); // no number: the usual limit
+  assert.equal((await make({people: 'many'})).people, 4);
+  assert.equal((await make({people: 0})).people, 4);
+  assert.equal((await make({people: 5000})).people, 50); // never more than the cap
+});
+
+test('everyone who joins a group link is in the same room, each with their own account and name', async () => {
+  const group = await (await post('/agora/invites', {people: 3}, {'x-invite-key': ENV.INVITE_KEY})).json();
+  const joined = [];
+  for (const name of ['Asha', 'Bilal', 'चरण']) {
+    joined.push(await (await post(`/agora/join/${codeOf(group.guest)}`, {name})).json());
+  }
+  assert.deepEqual(new Set(joined.map(j => j.channel)), new Set([group.room]));
+  assert.equal(new Set(joined.map(j => j.account)).size, 3);
+  assert.deepEqual(joined.map(j => Buffer.from(j.account.split('.')[1], 'base64url').toString()), ['Asha', 'Bilal', 'चरण']);
 });
