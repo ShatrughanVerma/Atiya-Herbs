@@ -29,11 +29,12 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
   });
 
   // meetings are made after signaling (they share its connection login), but signaling must know who is in one
-  const meetingHooks = {isInMeeting: () => false};
+  const meetingHooks = {isInMeeting: () => false, startFromCall: () => ({ok: false, error: 'not-configured'})};
   const state = attachSignaling(io, {
     tokens,
     recording,
     isInMeeting: userId => meetingHooks.isInMeeting(userId),
+    startMeetingFromCall: details => meetingHooks.startFromCall(details),
     ringTimeoutMs: Number(env.RING_TIMEOUT_MS) || 45000,
     reconnectGraceMs: Number(env.RECONNECT_GRACE_MS) || 15000,
     log,
@@ -45,11 +46,17 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
     agora: tokens.agora,
     store,
     isInCall: userId => !!state.users.get(userId)?.callId,
+    // who is connected right now (for ringing someone into a meeting)
+    findUser: userId => {
+      const u = state.users.get(userId);
+      return u?.socketId ? {name: u.name, socketId: u.socketId} : null;
+    },
     env,
     log,
     now: overrides.now,
   });
   meetingHooks.isInMeeting = meetings.isInMeeting;
+  meetingHooks.startFromCall = meetings.startFromCall;
   app.use(meetings.router);
 
   // Call links that work in a browser without the app (Agora, independent of the app's own calling)

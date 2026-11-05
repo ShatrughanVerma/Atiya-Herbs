@@ -17,6 +17,7 @@ import CallVideo from './CallVideo';
 import Avatar from './Avatar';
 import { useCall } from './CallContext';
 import { formatMobile } from './phone';
+import AddPersonCard from '../meetings/AddPersonCard';
 
 // WhatsApp-style call screen, shown above every screen. The audio and video come from LiveKit
 // (see CallContext.js); this only draws them.
@@ -174,8 +175,10 @@ export default function CallOverlay() {
     requestRecording,
     respondRecording,
     stopRecording,
+    addPersonToCall,
   } = useCall();
   const duration = useTimer(call?.connectedAt);
+  const [addOpen, setAddOpen] = useState(false); // the "add someone by number" card
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
   // Recording is built on LiveKit, so a call that runs on Agora cannot be recorded
@@ -183,11 +186,14 @@ export default function CallOverlay() {
     recordingAvailable &&
     call?.provider !== 'agora' &&
     call?.status === 'connected';
+  // Once the call is connected, a third person can be added by number (the call becomes a group call)
+  const canAdd = call?.status === 'connected';
   const m = callMetrics({
     width: window.width,
     height: window.height,
     insets,
-    actionCount: 3 + (localVideo ? 1 : 0) + (showRecord ? 1 : 0),
+    actionCount:
+      3 + (localVideo ? 1 : 0) + (showRecord ? 1 : 0) + (canAdd ? 1 : 0),
   });
 
   if (!call) {
@@ -356,6 +362,14 @@ export default function CallOverlay() {
                       onPress={flipCamera}
                     />
                   )}
+                  {canAdd && (
+                    <Action
+                      icon="account-plus"
+                      label="Add person"
+                      size={m.actionSize}
+                      onPress={() => setAddOpen(true)}
+                    />
+                  )}
                   {showRecord && (
                     <Action
                       size={m.actionSize}
@@ -412,6 +426,14 @@ export default function CallOverlay() {
             </View>
           )}
         </SafeAreaView>
+        {addOpen && canAdd && !ended && (
+          <AddPersonCard
+            title="Add someone to this call"
+            note="Their phone rings. This call becomes a group call."
+            onAdd={addPersonToCall}
+            onClose={() => setAddOpen(false)}
+          />
+        )}
         {smallVideo && (
           <View
             style={[

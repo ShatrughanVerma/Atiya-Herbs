@@ -38,7 +38,7 @@ const join = async (userId, name = userId) => {
   socket.userId = userId;
   await once(socket, 'session');
   socket.events = [];
-  for (const e of ['meeting:update', 'meeting:chat', 'meeting:mute-request', 'meeting:removed', 'meeting:ended']) {
+  for (const e of ['meeting:update', 'meeting:chat', 'meeting:mute-request', 'meeting:removed', 'meeting:ended', 'meeting:invitation', 'meeting:invitation-ended', 'meeting:invite-result', 'call:upgrade', 'call:ended', 'call:ready']) {
     socket.on(e, data => socket.events.push({e, data}));
   }
   return socket;
@@ -359,4 +359,246 @@ test('six people can be in one meeting at once, and the list stays correct as pe
   for (const s of [asha, others[1], others[4]]) {
     assert.equal((await seen(s, 'meeting:chat')).message.from.id, 'p1');
   }
+});
+
+// ---- ringing people into a meeting by their number, and adding a person to a call that is going on ----
+
+const startWith = async env => {
+  clients.splice(0).forEach(c => c.disconnect());
+  await new Promise(resolve => server.close(resolve));
+  await start({...LIVEKIT, ...AGORA, ...env});
+};
+
+// Two people on a normal one-to-one LiveKit call
+const onACall = async (callerName = 'asha', calleeName = 'bilal') => {
+  const caller = await join(callerName, callerName[0].toUpperCase() + callerName.slice(1));
+  const callee = await join(calleeName, calleeName[0].toUpperCase() + calleeName.slice(1));
+  const {callId} = await ask(caller, 'call:start', {to: calleeName, video: false});
+  const ready = once(caller, 'call:ready');
+  callee.emit('call:accept', {callId});
+  assert.equal((await ready)[0].provider, 'livekit');
+  return {caller, callee, callId};
+};
+
+test('anyone in a meeting can ring a number: the person gets an Accept / Decline screen, and accepting joins them', async () => {
+  const {asha, bilal, id} = await threePeople();
+  const dev = await join('dev', 'Dev');
+  // Bilal is not the host, and can still add someone
+  assert.deepEqual(await ask(bilal, 'meeting:invite', {id, to: 'dev'}), {ok: true, invited: {id: 'dev', name: 'Dev'}});
+  const invitation = await seen(dev, 'meeting:invitation');
+  assert.deepEqual([invitation.id, invitation.title, invitation.from], [id, 'Clinic review', {id: 'bilal', name: 'Bilal'}]);
+  assert.equal(invitation.ttlMs, 45_000);
+
+  const ringing = await seen(asha, 'meeting:update', d => d.invited.length === 1);
+  assert.deepEqual(ringing.invited.map(i => [i.id, i.name, i.by]), [['dev', 'Dev', 'bilal']]); // everyone sees "ringing"
+
+  const res = await ask(dev, 'meeting:join', {id}); // Accept
+  assert.deepEqual([res.ok, res.you.role], [true, 'participant']);
+  const done = await seen(asha, 'meeting:update', d => d.participants.length === 4);
+  assert.deepEqual(done.invited, []);
+});
+
+test('the person rung can decline, and the one who rang is told', async () => {
+  const {asha, id} = await threePeople();
+  const dev = await join('dev', 'Dev');
+  await ask(asha, 'meeting:invite', {id, to: 'dev'});
+  await seen(dev, 'meeting:invitation');
+  assert.deepEqual(await ask(dev, 'meeting:decline', {id}), {ok: true});
+  assert.deepEqual(await seen(asha, 'meeting:invite-result'), {id, to: 'dev', name: 'Dev', result: 'declined'});
+  await seen(asha, 'meeting:update', d => d.invited.length === 0 && d.participants.length === 3);
+  assert.deepEqual(await ask(dev, 'meeting:decline', {id}), {ok: true}); // saying no twice does nothing
+});
+
+test('if nobody answers the ringing stops, and both sides are told', async () => {
+  await startWith({MEETING_INVITE_SECONDS: '0.1'});
+  const {asha, id} = await threePeople();
+  const dev = await join('dev', 'Dev');
+  await ask(asha, 'meeting:invite', {id, to: 'dev'});
+  assert.equal((await seen(dev, 'meeting:invitation')).ttlMs, 100);
+  assert.equal((await seen(asha, 'meeting:invite-result')).result, 'no-answer');
+  assert.equal((await seen(dev, 'meeting:invitation-ended')).id, id);
+  await seen(asha, 'meeting:update', d => d.invited.length === 0);
+});
+
+test('the person who rang, or the host, can stop the ringing; nobody else can', async () => {
+  const {asha, bilal, chandni, id} = await threePeople();
+  const dev = await join('dev', 'Dev');
+  await ask(bilal, 'meeting:invite', {id, to: 'dev'});
+  await seen(dev, 'meeting:invitation');
+  assert.deepEqual(await ask(chandni, 'meeting:cancel-invite', {id, userId: 'dev'}), {ok: false, error: 'not-found'});
+  assert.deepEqual(await ask(bilal, 'meeting:cancel-invite', {id, userId: 'dev'}), {ok: true});
+  assert.equal((await seen(dev, 'meeting:invitation-ended')).id, id);
+
+  await ask(chandni, 'meeting:invite', {id, to: 'dev'});
+  assert.deepEqual(await ask(asha, 'meeting:cancel-invite', {id, userId: 'dev'}), {ok: true}); // the host may
+});
+
+test('ending the meeting closes the ringing screens', async () => {
+  const {asha, id} = await threePeople();
+  const dev = await join('dev', 'Dev');
+  await ask(asha, 'meeting:invite', {id, to: 'dev'});
+  await seen(dev, 'meeting:invitation');
+  await ask(asha, 'meeting:end', {id});
+  assert.equal((await seen(dev, 'meeting:invitation-ended')).id, id);
+});
+
+test('a number cannot be rung when it is yourself, nobody, offline, already in, already ringing, busy or removed', async () => {
+  const {asha, bilal, id} = await threePeople();
+  await join('dev', 'Dev');
+  const ravi = await join('ravi', 'Ravi');
+  const sunita = await join('sunita', 'Sunita');
+
+  assert.deepEqual(await ask(asha, 'meeting:invite', {id, to: 'asha'}), {ok: false, error: 'self'});
+  assert.deepEqual(await ask(asha, 'meeting:invite', {id, to: '9999999999'}), {ok: false, error: 'offline'});
+  assert.deepEqual(await ask(asha, 'meeting:invite', {id, to: ''}), {ok: false, error: 'not-found'});
+  assert.deepEqual(await ask(asha, 'meeting:invite', {id, to: 'bilal'}), {ok: false, error: 'already-in'});
+
+  await ask(asha, 'meeting:invite', {id, to: 'dev'});
+  assert.deepEqual(await ask(bilal, 'meeting:invite', {id, to: 'dev'}), {ok: false, error: 'already-invited'});
+
+  // on a one-to-one call
+  const {callId} = await ask(ravi, 'call:start', {to: 'sunita', video: false});
+  const ready = once(ravi, 'call:ready');
+  sunita.emit('call:accept', {callId});
+  await ready;
+  assert.deepEqual(await ask(asha, 'meeting:invite', {id, to: 'ravi'}), {ok: false, error: 'busy'});
+
+  // removed by the host
+  await ask(asha, 'meeting:remove', {id, userId: 'bilal'});
+  assert.deepEqual(await ask(asha, 'meeting:invite', {id, to: 'bilal'}), {ok: false, error: 'removed'});
+});
+
+test('a person already in another meeting is busy', async () => {
+  const {asha, id} = await threePeople();
+  const dev = await join('dev', 'Dev');
+  assert.equal((await ask(dev, 'meeting:create', {})).ok, true);
+  assert.deepEqual(await ask(asha, 'meeting:invite', {id, to: 'dev'}), {ok: false, error: 'busy'});
+});
+
+test('only a member can ring someone; in a locked meeting only the host can, and the person rung may come in', async () => {
+  const {asha, bilal, id} = await threePeople();
+  const dev = await join('dev', 'Dev');
+  await join('ravi', 'Ravi');
+  assert.deepEqual(await ask(dev, 'meeting:invite', {id, to: 'ravi'}), {ok: false, error: 'not-in-meeting'});
+
+  await ask(asha, 'meeting:lock', {id, locked: true});
+  assert.deepEqual(await ask(bilal, 'meeting:invite', {id, to: 'dev'}), {ok: false, error: 'locked'});
+  assert.deepEqual(await ask(dev, 'meeting:join', {id}), {ok: false, error: 'locked'}); // asking on their own still fails
+  assert.deepEqual(await ask(asha, 'meeting:invite', {id, to: 'dev'}), {ok: true, invited: {id: 'dev', name: 'Dev'}});
+  assert.equal((await ask(dev, 'meeting:join', {id})).ok, true); // but when the host rings, they can come in
+});
+
+test('a full meeting counts the people being rung, and ringing is slowed down', async () => {
+  await startWith({MEETING_INVITES_PER_MINUTE: '2'});
+  const asha = await join('asha', 'Asha');
+  const {meeting} = await ask(asha, 'meeting:create', {maxParticipants: 3});
+  for (const name of ['a1', 'a2', 'a3']) {
+    await join(name, name);
+  }
+  assert.equal((await ask(asha, 'meeting:invite', {id: meeting.id, to: 'a1'})).ok, true);
+  assert.equal((await ask(asha, 'meeting:invite', {id: meeting.id, to: 'a2'})).ok, true);
+  assert.deepEqual(await ask(asha, 'meeting:invite', {id: meeting.id, to: 'a3'}), {ok: false, error: 'full'}); // 1 in + 2 ringing = 3
+  await ask(asha, 'meeting:cancel-invite', {id: meeting.id, userId: 'a2'});
+  assert.deepEqual(await ask(asha, 'meeting:invite', {id: meeting.id, to: 'a3'}), {ok: false, error: 'slow-down'}); // a third ring inside a minute
+});
+
+test('adding a person to a call that is going on turns it into a meeting: both are told, the new person is rung, all three end up together', async () => {
+  const {caller: asha, callee: bilal, callId} = await onACall();
+  const chandni = await join('chandni', 'Chandni');
+
+  const res = await ask(asha, 'call:add', {callId, to: 'chandni'}); // Asha adds Chandni by her number
+  assert.equal(res.ok, true);
+  assert.match(res.meetingId, /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/);
+
+  for (const s of [asha, bilal]) {
+    assert.deepEqual(await seen(s, 'call:upgrade'), {callId, meetingId: res.meetingId});
+    assert.equal((await seen(s, 'call:ended')).reason, 'upgraded');
+  }
+  const invitation = await seen(chandni, 'meeting:invitation');
+  assert.deepEqual([invitation.id, invitation.from], [res.meetingId, {id: 'asha', name: 'Asha'}]);
+
+  // the two on the call move over (no ringing screen for them), then the new person accepts
+  const a = await ask(asha, 'meeting:join', {id: res.meetingId});
+  const b = await ask(bilal, 'meeting:join', {id: res.meetingId});
+  const c = await ask(chandni, 'meeting:join', {id: res.meetingId});
+  assert.deepEqual([a.ok, b.ok, c.ok], [true, true, true]);
+  assert.deepEqual([a.you.role, b.you.role, c.you.role], ['host', 'participant', 'participant']); // who pressed "add" hosts
+  assert.equal(new Set([a.join.channel, b.join.channel, c.join.channel]).size, 1); // one room
+  const all = await roster(asha, ['asha', 'bilal', 'chandni']);
+  assert.deepEqual(all.invited, []);
+  assert.equal(all.hostId, 'asha');
+});
+
+test('either person on the call can add someone, and the one who added becomes the host', async () => {
+  const {caller: asha, callee: bilal, callId} = await onACall();
+  await join('chandni', 'Chandni');
+  const res = await ask(bilal, 'call:add', {callId, to: 'chandni'}); // the one who was called adds
+  assert.equal(res.ok, true);
+  await seen(asha, 'call:upgrade');
+  const b = await ask(bilal, 'meeting:join', {id: res.meetingId});
+  assert.equal(b.you.role, 'host');
+  assert.equal(b.meeting.hostId, 'bilal');
+});
+
+test('if the new person cannot be rung, nothing changes and the call goes on', async () => {
+  const {caller: asha, callee: bilal, callId} = await onACall();
+  await join('dev', 'Dev');
+  assert.deepEqual(await ask(asha, 'call:add', {callId, to: '9999999999'}), {ok: false, error: 'offline'});
+  assert.deepEqual(await ask(asha, 'call:add', {callId, to: 'asha'}), {ok: false, error: 'self'});
+  assert.deepEqual(await ask(asha, 'call:add', {callId, to: 'bilal'}), {ok: false, error: 'busy'}); // already on this call
+  assert.equal(asha.events.some(x => x.e === 'call:upgrade'), false);
+  assert.equal(bilal.events.some(x => x.e === 'call:ended'), false); // the call is still on
+
+  asha.emit('call:end', {callId});
+  assert.equal((await seen(bilal, 'call:ended')).reason, 'ended'); // and it ends the normal way
+});
+
+test('adding a person is refused when the call is not going on, or the person is busy', async () => {
+  const asha = await join('asha', 'Asha');
+  const bilal = await join('bilal', 'Bilal');
+  const ravi = await join('ravi', 'Ravi');
+  const sunita = await join('sunita', 'Sunita');
+
+  assert.deepEqual(await ask(asha, 'call:add', {callId: 'nope', to: 'ravi'}), {ok: false, error: 'not-active'});
+  const {callId} = await ask(asha, 'call:start', {to: 'bilal', video: false}); // still ringing
+  assert.deepEqual(await ask(asha, 'call:add', {callId, to: 'ravi'}), {ok: false, error: 'not-active'});
+  const ready = once(asha, 'call:ready');
+  bilal.emit('call:accept', {callId});
+  await ready;
+
+  const other = await ask(ravi, 'call:start', {to: 'sunita', video: false}); // Ravi is on another call
+  const readyR = once(ravi, 'call:ready');
+  sunita.emit('call:accept', {callId: other.callId});
+  await readyR;
+  assert.deepEqual(await ask(asha, 'call:add', {callId, to: 'ravi'}), {ok: false, error: 'busy'});
+  assert.deepEqual(await ask(asha, 'call:add', {callId: other.callId, to: 'ravi'}), {ok: false, error: 'not-active'}); // not your call
+});
+
+test('adding a person needs Agora to be set up, and the call goes on without it', async () => {
+  await startWith({AGORA_APP_ID: '', AGORA_APP_CERTIFICATE: ''});
+  const {caller: asha, callee: bilal, callId} = await onACall();
+  await join('chandni', 'Chandni');
+  assert.deepEqual(await ask(asha, 'call:add', {callId, to: 'chandni'}), {ok: false, error: 'not-configured'});
+  assert.equal(bilal.events.some(x => x.e === 'call:ended'), false);
+});
+
+test('after an upgrade both people can enter the meeting at once, and a call that was not upgraded is untouched', async () => {
+  const {caller: asha, callee: bilal, callId} = await onACall();
+  const dev = await join('dev', 'Dev');
+  const ravi = await join('ravi', 'Ravi');
+  const sunita = await join('sunita', 'Sunita');
+  const second = await ask(ravi, 'call:start', {to: 'sunita', video: false}); // another call, not touched
+  const readyR = once(ravi, 'call:ready');
+  sunita.emit('call:accept', {callId: second.callId});
+  await readyR;
+
+  const res = await ask(asha, 'call:add', {callId, to: 'dev'});
+  await seen(bilal, 'call:upgrade');
+  assert.equal((await ask(bilal, 'meeting:join', {id: res.meetingId})).ok, true); // the one-to-one call is already closed
+  assert.equal((await ask(asha, 'meeting:join', {id: res.meetingId})).ok, true);
+  assert.equal((await ask(dev, 'meeting:join', {id: res.meetingId})).ok, true);
+
+  assert.equal(ravi.events.some(x => x.e === 'call:ended' || x.e === 'call:upgrade'), false);
+  ravi.emit('call:end', {callId: second.callId});
+  assert.equal((await seen(sunita, 'call:ended')).reason, 'ended');
 });

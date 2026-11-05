@@ -32,6 +32,25 @@ In the meeting: mic, camera, switch camera, speaker/earpiece, **share screen** (
 The top bar shows the name, id, **timer** and how many are in. The person who is talking gets an orange frame.
 A meeting starts with the **camera off**. Up to **8 tiles + a "+N more" tile** are drawn; everyone is in the People list.
 
+### Adding people by mobile number (and turning a call into a group call)
+
+Anyone in a meeting can **add a person by mobile number**: People -> **Add people by mobile number**, type the number
+(or pick a contact) and tap Add. That person's phone **rings** with an **Accept / Decline** screen (like an incoming
+call). Accept joins the meeting; Decline, or no answer for 45 seconds, tells whoever rang. Everyone sees the person as
+"Ringing..." in the People list, and whoever rang (or the host) can stop the ringing.
+
+During a normal **one-to-one call** the call screen has an **Add person** button (once the call is connected). Either
+of the two people can use it: the call turns into a group call, **both people move over automatically** (the one-to-one
+call is logged and closed, then both join the meeting), and the new number is rung. The person who pressed Add is the
+host. Add as many as you like afterwards (up to the meeting limit).
+
+- If the new person cannot be rung (not using the app right now, on another call or meeting, ...) **nothing changes**:
+  the call goes on and the app says why.
+- A group call runs on Agora, so it **uses Agora's free minutes** (not LiveKit's) and **is not recorded**; a recording
+  that was running on the one-to-one call stops when it moves over. There is a short break (a few seconds) while both
+  people move to the new room.
+- Locked meetings: only the host can ring someone. A person the host rang may enter even though it is locked.
+
 ### Host controls
 Only the host (the person who started it, or the longest-standing person if the host leaves) can:
 **mute one person or everyone**, **remove** someone (they cannot rejoin), **lock** the meeting (no new people), and
@@ -61,6 +80,9 @@ because the app already has that connection and the live state is real-time. The
 | `meeting:remove {id, userId}` | Host: take someone out |
 | `meeting:lock {id, locked}` | Host: lock or unlock |
 | `meeting:share {id, sharing}` | Start / stop sharing (one at a time) |
+| `meeting:invite {id, to}` | Anyone in it: ring a mobile number to join |
+| `meeting:decline {id}` / `meeting:cancel-invite {id, userId}` | The person rung says no / whoever rang stops the ringing |
+| `call:add {callId, to}` | On a one-to-one call: add a person. Turns the call into a meeting (both get `call:upgrade`) and rings `to` |
 | `meeting:token {id}` | A fresh Agora token (the app asks before the 4-hour token runs out) |
 | `meeting:info {id}`, `meeting:list` | What a link shows; your recent meetings |
 
@@ -68,12 +90,15 @@ because the app already has that connection and the live state is real-time. The
 |---|---|
 | `meeting:update` | The whole picture (title, host, locked, people, who shares), on every change |
 | `meeting:chat`, `meeting:mute-request`, `meeting:removed`, `meeting:ended` | Chat message; host asks you to mute; you were removed; it is over |
+| `meeting:invitation`, `meeting:invitation-ended`, `meeting:invite-result` | You are being rung; the ringing stopped; what happened to someone you rang (`declined`, `no-answer`) |
+| `call:upgrade {callId, meetingId}` | Your call became a meeting: leave the call and join it (the call then ends with reason `upgraded`) |
 
 **HTTP:** `GET /meetings/<id>` returns the public basics (title, host name, live or ended, locked, how many people).
 It never returns a token. `/health` now also shows how many meetings are live.
 
 Errors: `not-found`, `ended`, `removed`, `locked`, `full`, `in-call`, `in-meeting`, `not-in-meeting`, `host-only`,
-`busy` (someone else is sharing), `slow-down`, `not-configured` (Agora keys missing).
+`busy` (someone else is sharing, or the person rung is on a call or in a meeting), `slow-down`, `not-configured`
+(Agora keys missing), and for adding people: `self`, `offline`, `already-in`, `already-invited`, `not-active`.
 
 ## 4. Database
 
@@ -101,6 +126,8 @@ Needs `AGORA_APP_ID` and `AGORA_APP_CERTIFICATE` (same as the browser links). Op
 | `MEETING_RECONNECT_GRACE_MS` | 20000 | How long a dropped connection keeps its place |
 | `MEETING_CREATE_PER_HOUR` | 10 | Meetings one person may start per hour |
 | `MEETING_KEEP_ENDED_MS` | 3600000 | How long an ended meeting is remembered |
+| `MEETING_INVITE_SECONDS` | 45 | How long a person's phone rings when added |
+| `MEETING_INVITES_PER_MINUTE` | 10 | How many people one person may ring per minute |
 
 ## 6. App and platform setup
 
@@ -124,14 +151,16 @@ cd android && gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a
 
 ## 7. Tests
 
-- **Server** (`call-backend/test/meetings.test.js`, 24 tests, real Socket.IO clients, up to 6 people in one meeting):
+- **Server** (`call-backend/test/meetings.test.js`, 39 tests, real Socket.IO clients, up to 6 people in one meeting):
   create/join/leave/end, host transfer, chat and history, rate limits, mute/remove/lock, full and locked meetings,
   one screen sharer at a time, reconnect and grace period, token renewal, the link info route, recent meetings, the
   database records, and that **LiveKit one-to-one calls still work** next to a live meeting (and the busy rules).
-  The whole server suite is 94 tests (the 70 older ones, including all LiveKit call tests, are unchanged).
-- **App** (`__tests__/meetings/`, 47 tests): grid layout for 1-20 people on several screen sizes, the meeting logic with
+  Adding people: ringing, accept, decline, no answer, cancel, every refusal reason, locked and full meetings, and a
+  one-to-one call becoming a meeting with a third person (either person can add; nothing changes if the number cannot
+  be rung). The whole server suite is 109 tests (the 70 older ones, including all LiveKit call tests, are unchanged).
+- **App** (`__tests__/meetings/` and `__tests__/calling/`, 74 new tests): grid layout for 1-20 people on several screen sizes, the meeting logic with
   a fake server and a fake Agora engine for **three people** (video, mute, speaking, chat, host controls, removal,
-  end, reconnect, token renewal, screen sharing, links, errors), and the meeting screen. The whole app suite is 122.
+  end, reconnect, token renewal, screen sharing, links, errors), and the meeting screen. The call screen's Add person button and the call-to-meeting move are tested too. The whole app suite is 139.
 
 ## 8. What is NOT proven, and limits (please read)
 
@@ -158,20 +187,27 @@ cd android && gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a
 
 1. Phone A: Calls -> people icon -> Start meeting. Note the id.
 2. Phones B and C: Join with the id. All three see three tiles and "3 in meeting".
+   (Also try: phone A taps People -> Add people by mobile number and adds phone C's number; phone C rings with Accept /
+   Decline.)
 3. Everyone turns the camera on: each sees the other two. The talker gets an orange frame.
 4. B sends a chat message: A and C see it; the chat badge shows on phones with the chat closed.
 5. A (host): People -> Mute all; B and C are muted. Remove C: C is told, A and B see two people. C cannot rejoin.
 6. B: Share screen. A sees the screen in B's tile. C (or A) tries to share: told someone else is sharing.
 7. A: Lock meeting; D cannot join. Unlock.
 8. A leaves (not End): B becomes host. B: End for all: everyone is told.
-9. During a meeting, try to start a call to someone in it: they show as busy. Then make a normal call between two
+9. On two phones, make a normal call (LiveKit). On either, tap **Add person**, enter a third phone's number: the third
+   rings, and both on the call move into one group call without redialling. Decline on the third phone: the others see
+   "declined".
+10. During a meeting, try to start a call to someone in it: they show as busy. Then make a normal call between two
    people who are not in the meeting: LiveKit works as before.
-10. Switch a phone from Wi-Fi to mobile data: "Reconnecting..." then back, still in the meeting.
+11. Switch a phone from Wi-Fi to mobile data: "Reconnecting..." then back, still in the meeting.
 
 ## 10. Files changed or added
 
-Added: `call-backend/src/meetings.js`, `call-backend/test/meetings.test.js`, `src/meetings/*` (5 files),
+Added: `call-backend/src/meetings.js`, `call-backend/test/meetings.test.js`, `src/meetings/*` (8 files, including
+`AddPersonCard.js` and `MeetingInvite.js`),
 `__tests__/meetings/*` (2 files), `docs/MEETINGS.md`.
-Changed: `call-backend/src/index.js`, `signaling.js` (busy rule only), `recordingStore.js` (tables and methods),
-`.env.example`, `src/calling/CallContext.js` (exposes the socket), `CallsScreen.js` (button), `src/navigation/AppNavigator.js`,
+Changed: `call-backend/src/index.js`, `signaling.js` (busy rule and the new `call:add` event), `recordingStore.js` (tables and methods),
+`.env.example`, `src/calling/CallContext.js` (exposes the socket, `call:upgrade`, `addPersonToCall`), `CallOverlay.js` (Add person button),
+`CallsScreen.js` (button), `src/navigation/AppNavigator.js`,
 `App.js`, `android/app/build.gradle`, `AndroidManifest.xml`, `ios/AtiyaHerbs/Info.plist`.

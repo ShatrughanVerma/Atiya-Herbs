@@ -20,6 +20,9 @@ const express = require('express');
 //   meeting:remove {id, userId}                host: takes someone out (they cannot rejoin)
 //   meeting:lock   {id, locked}                host: stop (or allow) new people joining
 //   meeting:share  {id, sharing}               start / stop sharing your screen (one person at a time)
+//   meeting:invite {id, to}                    anyone in the meeting: ring a mobile number to join (the person gets an Accept / Decline screen)
+//   meeting:decline {id}                       the person who was rung says no
+//   meeting:cancel-invite {id, userId}         the person who rang (or the host) stops the ringing
 //   meeting:token  {id}                        a fresh Agora token (they expire; the app asks before that)
 //   meeting:info   {id}                        what a meeting link shows before joining
 //   meeting:list                               your recent meetings
@@ -27,6 +30,9 @@ const express = require('express');
 //   meeting:update {id, title, hostId, locked, startedAt, sharingId, participants: [...]}  on every change
 //   meeting:chat   {id, message}
 //   meeting:mute-request {id, by, all}   the host asks you to mute (the app does it)
+//   meeting:invitation {id, title, from, ttlMs}   you are being rung to join (Accept = meeting:join, Decline = meeting:decline)
+//   meeting:invitation-ended {id}        the ringing stopped (answered, cancelled, timed out, or the meeting ended)
+//   meeting:invite-result {id, to, name, result}  to whoever rang: declined | no-answer
 //   meeting:removed {id, by}             the host took you out
 //   meeting:ended   {id, reason, by?}    the meeting is over
 
@@ -39,6 +45,8 @@ const format = raw => `${raw.slice(0, 3)}-${raw.slice(3, 7)}-${raw.slice(7)}`; /
 const normalizeMeetingId = value => String(value || '').toLowerCase().replace(/[^a-z]/g, '');
 const validId = raw => raw.length === ID_LENGTH && [...raw].every(c => LETTERS.includes(c));
 
+const normalizeUserId = value => String(value || '').trim().toLowerCase().slice(0, 120);
+
 const CHAT_KEEP = 200;
 const CHAT_MAX_LENGTH = 1000;
 const iso = ms => new Date(ms).toISOString();
@@ -48,6 +56,7 @@ function createMeetings({
   agora,
   store,
   isInCall = () => false,
+  findUser = () => null, // a user id -> {name, socketId} when they are connected (from signaling.js)
   env = process.env,
   log = () => {},
   now = () => Date.now(),
@@ -56,11 +65,14 @@ function createMeetings({
   const graceMs = env.MEETING_RECONNECT_GRACE_MS !== undefined ? Number(env.MEETING_RECONNECT_GRACE_MS) : 20_000;
   const createPerHour = Number(env.MEETING_CREATE_PER_HOUR) || 10;
   const keepEndedMs = Number(env.MEETING_KEEP_ENDED_MS) || 3_600_000;
+  const inviteTtlMs = (Number(env.MEETING_INVITE_SECONDS) || 45) * 1000;
+  const invitesPerMinute = Number(env.MEETING_INVITES_PER_MINUTE) || 10;
 
   const meetings = new Map(); // raw id -> live meeting
   const inMeeting = new Map(); // user id -> raw id of the meeting they are in
   const createdBy = new Map(); // user id -> times of the meetings they made (to slow down abuse)
   const hits = new Map(); // ip -> request times for the public info route
+  const inviteTimes = new Map(); // user id -> times they rang someone (to slow down abuse)
 
   const room = m => `meeting:${m.raw}`;
   const channelOf = m => `mtg-${m.raw}`;
@@ -87,6 +99,8 @@ function createMeetings({
     sharingId: m.sharingId,
     maxParticipants: m.max,
     participants: [...m.participants.values()].sort((a, b) => a.joinedAt - b.joinedAt).map(publicParticipant),
+    // people being rung right now, shown as "Ringing..." in the list
+    invited: [...m.pending.entries()].map(([id, p]) => ({id, name: findUser(id)?.name || id, by: p.by.id, expiresAt: iso(p.expiresAt)})),
   });
   const emitUpdate = m => io.to(room(m)).emit('meeting:update', snapshot(m));
   const socketOf = p => io.sockets.sockets.get(p.socketId);
@@ -101,6 +115,9 @@ function createMeetings({
       return;
     }
     m.status = 'ended';
+    for (const userId of [...m.pending.keys()]) {
+      stopRinging(m, userId, {tell: true});
+    }
     io.to(room(m)).emit('meeting:ended', {id: format(m.raw), reason, ...(by ? {by} : {})});
     const endedAt = iso(now());
     for (const p of m.participants.values()) {
@@ -117,6 +134,124 @@ function createMeetings({
     save(() => store.meetingUpdate?.(format(m.raw), {status: 'ended', ended_at: endedAt, ended_by: by || null}));
     log(`meeting ended (${reason}), ${[...meetings.values()].filter(x => x.status === 'live').length} live`);
     forget(m);
+  }
+
+  // Stops the ringing for one person (they answered, or it was cancelled or timed out). `tell` closes their screen.
+  function stopRinging(m, userId, {tell = false} = {}) {
+    const p = m.pending.get(userId);
+    if (!p) {
+      return null;
+    }
+    clearTimeout(p.timer);
+    m.pending.delete(userId);
+    if (tell) {
+      const u = findUser(userId);
+      if (u?.socketId) {
+        io.to(u.socketId).emit('meeting:invitation-ended', {id: format(m.raw)});
+      }
+    }
+    return p;
+  }
+
+  // Tells whoever rang what happened
+  function tellInviter(m, p, userId, result) {
+    const target = findUser(p.by.id);
+    if (target?.socketId) {
+      io.to(target.socketId).emit('meeting:invite-result', {id: format(m.raw), to: userId, name: findUser(userId)?.name || userId, result});
+    }
+  }
+
+  function transferHost(m) {
+    const next = [...m.participants.values()].sort((a, b) => a.joinedAt - b.joinedAt)[0];
+    if (!next) {
+      return;
+    }
+    for (const p of m.participants.values()) {
+      p.role = p.id === next.id ? 'host' : 'participant';
+    }
+    m.hostId = next.id;
+    save(() => store.meetingUpdate?.(format(m.raw), {host_id: next.id, host_name: next.name}));
+  }
+
+  // Why `by` cannot ring `targetId` into meeting `m`, or null when they can
+  function inviteProblem(m, by, targetId) {
+    if (!targetId) {
+      return 'not-found';
+    }
+    if (targetId === by.id) {
+      return 'self';
+    }
+    if (m.participants.has(targetId)) {
+      return 'already-in';
+    }
+    if (m.pending.has(targetId)) {
+      return 'already-invited';
+    }
+    if (m.banned.has(targetId)) {
+      return 'removed';
+    }
+    if (m.locked && m.hostId !== by.id) {
+      return 'locked';
+    }
+    if (m.participants.size + m.pending.size >= m.max) {
+      return 'full';
+    }
+    if (!findUser(targetId)?.socketId) {
+      return 'offline';
+    }
+    if (isInCall(targetId) || inMeeting.has(targetId)) {
+      return 'busy';
+    }
+    return null;
+  }
+
+  // Rings someone to join: their app shows an Accept / Decline screen for a while
+  function ring(m, by, targetId, {silent = false} = {}) {
+    const ttl = silent ? 30_000 : inviteTtlMs;
+    const timer = setTimeout(() => {
+      const gone = stopRinging(m, targetId, {tell: true});
+      if (!gone) {
+        return;
+      }
+      if (!silent) {
+        tellInviter(m, gone, targetId, 'no-answer');
+      }
+      // the host never came over from the call: someone who did takes over
+      if (m.hostId === targetId && m.participants.size) {
+        transferHost(m);
+      }
+      if (!m.participants.size && !m.pending.size) {
+        return endMeeting(m, 'empty');
+      }
+      emitUpdate(m);
+    }, ttl);
+    timer.unref?.();
+    m.pending.set(targetId, {by: {id: by.id, name: by.name}, timer, silent, expiresAt: now() + ttl});
+    if (!silent) {
+      io.to(findUser(targetId).socketId).emit('meeting:invitation', {
+        id: format(m.raw),
+        title: m.title,
+        from: {id: by.id, name: by.name},
+        ttlMs: ttl,
+      });
+    }
+  }
+
+  function invitePerson(m, by, rawTarget) {
+    const targetId = normalizeUserId(rawTarget);
+    const problem = inviteProblem(m, by, targetId);
+    if (problem) {
+      return {ok: false, error: problem};
+    }
+    const t = now();
+    const recent = (inviteTimes.get(by.id) || []).filter(time => t - time < 60_000);
+    if (recent.length >= invitesPerMinute) {
+      return {ok: false, error: 'slow-down'};
+    }
+    inviteTimes.set(by.id, [...recent, t]);
+    ring(m, by, targetId);
+    emitUpdate(m);
+    return {ok: true, invited: {id: targetId, name: findUser(targetId)?.name || targetId}};
   }
 
   // Takes a person out of the meeting. If they were the host, the longest-standing person becomes the host.
@@ -138,14 +273,11 @@ function createMeetings({
     }
     save(() => store.participantLeft?.(format(m.raw), userId, iso(now()), removed));
 
-    if (!m.participants.size) {
+    if (!m.participants.size && !m.pending.size) {
       return endMeeting(m, 'empty');
     }
     if (m.hostId === userId) {
-      const next = [...m.participants.values()].sort((a, b) => a.joinedAt - b.joinedAt)[0];
-      next.role = 'host';
-      m.hostId = next.id;
-      save(() => store.meetingUpdate?.(format(m.raw), {host_id: next.id, host_name: next.name}));
+      transferHost(m);
     }
     emitUpdate(m);
   }
@@ -158,6 +290,7 @@ function createMeetings({
   async function addParticipant(socket, m, {role} = {}) {
     const userId = socket.data.userId;
     const name = socket.data.name || userId;
+    stopRinging(m, userId); // joining answers the ringing
     const existing = m.participants.get(userId);
     if (existing) {
       // coming back (the connection dropped and the app joined again): keep their place and role
@@ -169,7 +302,7 @@ function createMeetings({
       const p = {
         id: userId,
         name,
-        role: role || 'participant',
+        role: role || (m.hostId === userId ? 'host' : 'participant'),
         muted: false,
         cameraOn: false,
         sharing: false,
@@ -263,6 +396,7 @@ function createMeetings({
         max: Number.isFinite(wantedMax) && wantedMax >= 2 ? Math.min(wantedMax, maxParticipants) : maxParticipants,
         participants: new Map(),
         banned: new Set(),
+        pending: new Map(), // user id -> {by, timer, silent, expiresAt}: people being rung to join
         chat: [],
         sharingId: null,
         peak: 0,
@@ -292,10 +426,10 @@ function createMeetings({
       if (!already && inMeeting.has(userId)) {
         return reply({ok: false, error: 'in-meeting'});
       }
-      if (!already && m.locked) {
+      if (!already && m.locked && !m.pending.has(userId)) {
         return reply({ok: false, error: 'locked'});
       }
-      if (!already && m.participants.size >= m.max) {
+      if (!already && !m.pending.has(userId) && m.participants.size + m.pending.size >= m.max) {
         return reply({ok: false, error: 'full'});
       }
       reply(await addParticipant(socket, m));
@@ -415,6 +549,42 @@ function createMeetings({
       reply({ok: true});
     }));
 
+    socket.on('meeting:invite', ack((payload, reply) => {
+      const g = guard(socket, payload, reply);
+      if (g) {
+        reply(invitePerson(g.m, g.me, payload.to));
+      }
+    }));
+
+    socket.on('meeting:decline', ack((payload, reply) => {
+      const m = meetings.get(normalizeMeetingId(payload.id));
+      const gone = m && m.status === 'live' ? stopRinging(m, userId) : null;
+      if (gone) {
+        tellInviter(m, gone, userId, 'declined');
+        if (!m.participants.size && !m.pending.size) {
+          endMeeting(m, 'empty');
+        } else {
+          emitUpdate(m);
+        }
+      }
+      reply({ok: true});
+    }));
+
+    socket.on('meeting:cancel-invite', ack((payload, reply) => {
+      const g = guard(socket, payload, reply);
+      if (!g) {
+        return;
+      }
+      const targetId = normalizeUserId(payload.userId);
+      const ringing = g.m.pending.get(targetId);
+      if (!ringing || ringing.silent || (ringing.by.id !== userId && g.m.hostId !== userId)) {
+        return reply({ok: false, error: 'not-found'});
+      }
+      stopRinging(g.m, targetId, {tell: true});
+      emitUpdate(g.m);
+      reply({ok: true});
+    }));
+
     socket.on('meeting:token', ack(async (payload, reply) => {
       const g = guard(socket, payload, reply);
       if (g) {
@@ -484,8 +654,54 @@ function createMeetings({
     return m ? res.json(info(m)) : res.status(404).json({error: 'not-found'});
   });
 
+  // A one-to-one call becomes a meeting so a third person can be added: `hostId` pressed "add person", `members` are
+  // the two on the call (they are told to move over and join), and `invitee` is rung. Nothing is created unless the
+  // invitee can be rung. Returns {ok, meetingId} or {ok: false, error}.
+  function startFromCall({hostId, hostName, members, invitee}) {
+    if (!agora.configured) {
+      return {ok: false, error: 'not-configured'};
+    }
+    if (members.some(id => inMeeting.has(id))) {
+      return {ok: false, error: 'in-meeting'};
+    }
+    let raw;
+    do {
+      raw = newRawId();
+    } while (meetings.has(raw));
+    const t = now();
+    const m = {
+      raw,
+      title: `${hostName || hostId}'s call`,
+      hostId,
+      locked: false,
+      status: 'live',
+      createdAt: t,
+      max: maxParticipants,
+      participants: new Map(),
+      banned: new Set(),
+      pending: new Map(),
+      chat: [],
+      sharingId: null,
+      peak: 0,
+    };
+    const by = {id: hostId, name: hostName || hostId};
+    const wanted = normalizeUserId(invitee);
+    const problem = inviteProblem(m, by, wanted);
+    if (problem) {
+      return {ok: false, error: problem};
+    }
+    meetings.set(raw, m);
+    for (const id of members) {
+      ring(m, by, id, {silent: true}); // no ringing screen: they get the call's own "move over" message
+    }
+    ring(m, by, wanted);
+    save(() => store.meetingCreate?.({id: format(raw), title: m.title, host_id: hostId, host_name: by.name, max_participants: m.max, status: 'live', created_at: iso(t)}));
+    return {ok: true, meetingId: format(raw)};
+  }
+
   return {
     router,
+    startFromCall,
     isInMeeting: userId => inMeeting.has(userId),
     liveCount: () => [...meetings.values()].filter(m => m.status === 'live').length,
   };

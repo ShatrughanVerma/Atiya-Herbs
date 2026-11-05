@@ -8,6 +8,8 @@ const crypto = require('node:crypto');
 //   call:accept {callId}     callee picks up
 //   call:reject {callId}     callee declines
 //   call:end    {callId}     either side hangs up (or the caller cancels while it rings)
+//   call:add    {callId, to}  (ack → {ok, meetingId} or {ok: false, error}) add a third person to a call that is going on:
+//                            the call becomes a group meeting (meetings.js), both people get call:upgrade, and `to` is rung
 //   call:fallback {callId}   (ack {ok}) a phone that cannot connect through LiveKit asks for the call to be moved to
 //                            Agora; both people then get a new call:ready
 // Server → client
@@ -16,7 +18,8 @@ const crypto = require('node:crypto');
 //   call:incoming {callId, from: {id, name}, video}
 //   call:ready    {callId, provider, ...}           both people, after accept: join the call. LiveKit sends
 //                                                   {serverUrl, token}; Agora sends {appId, channel, account, token}
-//   call:ended    {callId, reason: 'rejected'|'cancelled'|'no-answer'|'ended'|'disconnected'}
+//   call:upgrade  {callId, meetingId}               the call became a group meeting: join it (meeting:join)
+//   call:ended    {callId, reason: 'rejected'|'cancelled'|'no-answer'|'ended'|'disconnected'|'upgraded'}
 //
 // Recording (only during a connected call, and only after the OTHER person agrees)
 //   recording:request {callId}        (ack → {ok} or {ok: false, error})  one person asks to record
@@ -31,7 +34,15 @@ const NO_RECORDING = {available: false, start: async () => ({ok: false, error: '
 
 function attachSignaling(
   io,
-  {tokens, recording = NO_RECORDING, ringTimeoutMs = 45000, reconnectGraceMs = 15000, isInMeeting = () => false, log = () => {}},
+  {
+    tokens,
+    recording = NO_RECORDING,
+    ringTimeoutMs = 45000,
+    reconnectGraceMs = 15000,
+    isInMeeting = () => false,
+    startMeetingFromCall = () => ({ok: false, error: 'not-configured'}),
+    log = () => {},
+  },
 ) {
   const users = new Map(); // userId -> {id, name, socketId, callId, graceTimer}
   const calls = new Map(); // callId -> {id, room, caller, callee, video, state: 'ringing'|'active', ringTimer}
@@ -173,6 +184,32 @@ function attachSignaling(
         log(`could not create call tokens: ${e.message}`);
         endCall(call.id, 'ended');
       }
+    });
+
+    // Add a third person to a call that is going on (the same idea as "add participant" in WhatsApp). The call is
+    // turned into a group meeting: the two people are told to join it, the one-to-one call is closed, and the new
+    // person's phone rings. If the new person cannot be rung (offline, busy...) nothing changes and the call goes on.
+    socket.on('call:add', (payload, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      const call = callFor(socket, payload?.callId);
+      if (!call || call.state !== 'active') {
+        return reply({ok: false, error: 'not-active'});
+      }
+      const result = startMeetingFromCall({
+        hostId: me,
+        hostName: user.name,
+        members: [call.caller, call.callee],
+        invitee: normalizeId(payload.to),
+      });
+      if (!result.ok) {
+        return reply(result);
+      }
+      reply({ok: true, meetingId: result.meetingId});
+      for (const userId of [call.caller, call.callee]) {
+        emitTo(userId, 'call:upgrade', {callId: call.id, meetingId: result.meetingId});
+      }
+      endCall(call.id, 'upgraded');
+      log(`call moved to a group meeting, ${calls.size} calls active`);
     });
 
     // A phone could not connect through LiveKit (for example its free limit is used up): move the call to Agora.

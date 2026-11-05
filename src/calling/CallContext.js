@@ -50,7 +50,8 @@ const RECORDING_ERRORS = {
   already: 'A recording request is already open.',
   quota: 'This month’s free recording time is used up.',
   failed: 'The recording could not be started.',
-  switched: 'Recording stopped because the call moved to another calling service.',
+  switched:
+    'Recording stopped because the call moved to another calling service.',
 };
 
 const endMessage = (reason, direction) => {
@@ -91,6 +92,8 @@ export function CallProvider({ children }) {
   const [serverConnected, setServerConnected] = useState(false);
   // The connection to the call server, shared with the group meetings (src/meetings): one login, one connection
   const [socketForMeetings, setSocketForMeetings] = useState(null);
+  // Set when a call has been turned into a group meeting (someone was added); the meetings code joins it
+  const [pendingMeetingId, setPendingMeetingId] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [call, setCall] = useState(null); // {id, peer: {id, name}, video, direction, status, connectedAt, endText}
   const [history, setHistory] = useState([]); // newest first: {id, peer, video, direction, outcome, at, duration}
@@ -236,7 +239,7 @@ export function CallProvider({ children }) {
 
   // Closes the call: logs it in the Calls list, shows why it ended for a moment, then closes the screen
   const finish = useCallback(
-    (outcome, endText) => {
+    (outcome, endText, { quiet = false } = {}) => {
       const current = callRef.current;
       if (!current || current.status === 'ended') {
         return;
@@ -260,6 +263,11 @@ export function CallProvider({ children }) {
           ...list,
         ].slice(0, MAX_HISTORY),
       );
+      if (quiet) {
+        // moving to a group meeting: no "call ended" screen, the meeting screen takes over
+        setCurrent(null);
+        return;
+      }
       patch({ status: 'ended', endText });
       closeTimerRef.current = setTimeout(
         () => setCurrent(null),
@@ -348,7 +356,9 @@ export function CallProvider({ children }) {
             emit('call:end', { callId });
             finish(
               callRef.current.connectedAt ? 'answered' : 'missed',
-              callRef.current.connectedAt ? 'Connection lost' : 'Could not connect',
+              callRef.current.connectedAt
+                ? 'Connection lost'
+                : 'Could not connect',
             );
           }
         },
@@ -401,7 +411,11 @@ export function CallProvider({ children }) {
           noiseSuppression: true,
           autoGainControl: true,
         },
-        publishDefaults: { dtx: false, red: true, audioPreset: { maxBitrate: 40000 } },
+        publishDefaults: {
+          dtx: false,
+          red: true,
+          audioPreset: { maxBitrate: 40000 },
+        },
       });
       roomRef.current = room;
 
@@ -604,7 +618,9 @@ export function CallProvider({ children }) {
     if ((!room && !agora) || !current || current.status === 'ended') {
       return;
     }
-    const turnOn = agora ? !agora.cameraOn : !room.localParticipant.isCameraEnabled;
+    const turnOn = agora
+      ? !agora.cameraOn
+      : !room.localParticipant.isCameraEnabled;
     if (turnOn && !(await ensureCallPermissions(true))) {
       Alert.alert(
         'Permission needed',
@@ -665,6 +681,38 @@ export function CallProvider({ children }) {
   }, []);
 
   const clearHistory = useCallback(() => setHistory([]), []);
+
+  // Add a third person to the call that is going on, by mobile number. The server turns the call into a group
+  // meeting and rings that number; both people on the call then get call:upgrade. Resolves to {ok} or {ok: false, error}.
+  const addPersonToCall = useCallback(
+    raw =>
+      new Promise(resolve => {
+        const current = callRef.current;
+        const to = normalizeMobile(raw);
+        if (!current?.id || current.status !== 'connected') {
+          resolve({ ok: false, error: 'not-active' });
+          return;
+        }
+        if (!to) {
+          resolve({ ok: false, error: 'invalid-number' });
+          return;
+        }
+        const timer = setTimeout(
+          () => resolve({ ok: false, error: 'timeout' }),
+          8000,
+        );
+        emit('call:add', { callId: current.id, to }, res => {
+          clearTimeout(timer);
+          resolve(res || { ok: false, error: 'failed' });
+        });
+      }),
+    [emit],
+  );
+
+  const clearPendingMeetingId = useCallback(
+    () => setPendingMeetingId(null),
+    [],
+  );
 
   // Ask the other person to record the call. Nothing is recorded unless they agree.
   const requestRecording = useCallback(() => {
@@ -793,7 +841,19 @@ export function CallProvider({ children }) {
       }
     });
 
+    // Someone was added to this call: it became a group meeting. Leave the one-to-one call quietly (it is still
+    // logged) and let the meetings code join the meeting.
+    socket.on('call:upgrade', ({ callId, meetingId }) => {
+      if (callRef.current?.id === callId) {
+        finish('answered', 'Moved to a group call', { quiet: true });
+        setPendingMeetingId(meetingId);
+      }
+    });
+
     socket.on('call:ended', ({ callId, reason }) => {
+      if (reason === 'upgraded') {
+        return; // handled by call:upgrade above
+      }
       const current = callRef.current;
       if (current && callId === current.id) {
         const answered = !!current.connectedAt;
@@ -840,6 +900,9 @@ export function CallProvider({ children }) {
       myId,
       serverConnected,
       socket: socketForMeetings,
+      pendingMeetingId,
+      clearPendingMeetingId,
+      addPersonToCall,
       onlineUsers,
       call,
       history,
@@ -870,6 +933,9 @@ export function CallProvider({ children }) {
       myId,
       serverConnected,
       socketForMeetings,
+      pendingMeetingId,
+      clearPendingMeetingId,
+      addPersonToCall,
       onlineUsers,
       call,
       history,

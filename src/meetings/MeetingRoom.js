@@ -22,6 +22,7 @@ import {
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Avatar from '../calling/Avatar';
 import CallVideo from '../calling/CallVideo';
+import AddPersonCard from './AddPersonCard';
 import { callMetrics } from '../calling/CallOverlay';
 import { useMeeting } from './MeetingContext';
 import {
@@ -148,9 +149,11 @@ function MoreTile({ count, width, height, onPress }) {
   );
 }
 
-function PeoplePanel({ onClose, onLeaveOrEnd }) {
+function PeoplePanel({ onClose, onLeaveOrEnd, onAddPerson }) {
   const {
     people,
+    invited,
+    cancelInvite,
     meeting,
     isHost,
     muteAll,
@@ -200,6 +203,41 @@ function PeoplePanel({ onClose, onLeaveOrEnd }) {
           </View>
         </View>
       )}
+      <Pressable
+        style={styles.addRow}
+        onPress={onAddPerson}
+        accessibilityRole="button"
+        accessibilityLabel="Add people"
+      >
+        <View style={styles.addIcon}>
+          <Icon name="account-plus" size={22} color="#fff" />
+        </View>
+        <Text style={styles.addText}>Add people by mobile number</Text>
+      </Pressable>
+      {invited.map(i => {
+        const mine = i.by === people.find(p => p.isMe)?.id;
+        return (
+          <View key={i.id} style={styles.personRow}>
+            <Avatar name={i.name} size={38} />
+            <View style={styles.personInfo}>
+              <Text style={styles.personName} numberOfLines={1}>
+                {i.name}
+              </Text>
+              <Text style={styles.personRole}>Ringing…</Text>
+            </View>
+            {(mine || isHost) && (
+              <Pressable
+                onPress={() => cancelInvite(i.id)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Stop ringing ${i.name}`}
+              >
+                <Icon name="close-circle-outline" size={24} color={RED} />
+              </Pressable>
+            )}
+          </View>
+        );
+      })}
       <FlatList
         data={people}
         keyExtractor={p => p.id}
@@ -368,10 +406,12 @@ export default function MeetingRoom() {
     leaveMeeting,
     endMeeting,
     setVisibleAccounts,
+    inviteByNumber,
   } = useMeeting();
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [panel, setPanel] = useState(null); // null | 'people' | 'chat'
+  const [adding, setAdding] = useState(false); // the "add someone by number" card
   const [area, setArea] = useState({
     width: window.width,
     height: window.height - 220,
@@ -596,9 +636,18 @@ export default function MeetingRoom() {
           <PeoplePanel
             onClose={() => setPanel(null)}
             onLeaveOrEnd={confirmLeave}
+            onAddPerson={() => setAdding(true)}
           />
         )}
         {panel === 'chat' && <ChatPanel onClose={() => setPanel(null)} />}
+        {adding && (
+          <AddPersonCard
+            title="Add people to this meeting"
+            note="Their phone rings, and they join when they accept."
+            onAdd={inviteByNumber}
+            onClose={() => setAdding(false)}
+          />
+        )}
       </SafeAreaView>
     </Modal>
   );
@@ -714,6 +763,21 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   sheetTitle: { color: '#fff', fontSize: 18, fontWeight: '600' },
+  addRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginBottom: 4,
+  },
+  addIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: GREEN,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addText: { color: '#fff', fontSize: 15, marginLeft: 12 },
   hostBar: { marginBottom: 8, gap: 8 },
   hostBtn: {
     flexDirection: 'row',

@@ -1,12 +1,13 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import { Alert, Linking, Modal, Platform } from 'react-native';
+import { Alert, Linking, Modal, Platform, Vibration } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { createAgoraRtcEngine } from 'react-native-agora';
 import { useCall } from '../../src/calling/CallContext';
 import { ensureCallPermissions } from '../../src/calling/permissions';
 import { MeetingProvider, useMeeting } from '../../src/meetings/MeetingContext';
 import MeetingRoom from '../../src/meetings/MeetingRoom';
+import MeetingInvite from '../../src/meetings/MeetingInvite';
 
 jest.setTimeout(30000);
 
@@ -122,6 +123,7 @@ let screen;
 let socket;
 let engine;
 let me;
+let clearPending;
 
 function Probe() {
   api = useMeeting();
@@ -132,18 +134,29 @@ const render = async ({
   myId = 'asha',
   call = null,
   connected = true,
+  pendingMeetingId = null,
+  replies = {},
 } = {}) => {
   socket = makeSocket();
+  Object.assign(socket.replies, replies); // answers the server gives right from the start
   socket.connected = connected;
   engine = makeEngine();
   me = myId;
-  useCall.mockImplementation(() => ({ socket, myId: me, call }));
+  clearPending = jest.fn();
+  useCall.mockImplementation(() => ({
+    socket,
+    myId: me,
+    call,
+    pendingMeetingId,
+    clearPendingMeetingId: clearPending,
+  }));
   await ReactTestRenderer.act(async () => {
     screen = ReactTestRenderer.create(
       <SafeAreaProvider initialMetrics={SAFE_AREA}>
         <MeetingProvider>
           <Probe />
           <MeetingRoom />
+          <MeetingInvite />
         </MeetingProvider>
       </SafeAreaProvider>,
     );
@@ -192,6 +205,8 @@ beforeEach(() => {
   ensureCallPermissions.mockImplementation(async () => true);
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   jest.spyOn(Linking, 'getInitialURL').mockResolvedValue(null);
+  jest.spyOn(Vibration, 'vibrate').mockImplementation(() => {});
+  jest.spyOn(Vibration, 'cancel').mockImplementation(() => {});
 });
 afterEach(async () => {
   await act(() => screen?.unmount());
@@ -877,4 +892,256 @@ test('your recent meetings come from the server', async () => {
     result = await api.listMeetings();
   });
   expect(result).toEqual(list);
+});
+
+// ---- ringing: someone adds you to a call or meeting, and you add people by number ----
+
+const INVITATION = {
+  id: ID,
+  title: 'Clinic review',
+  from: { id: '9123456780', name: 'Bilal' },
+  ttlMs: 45000,
+};
+const typeNumber = text =>
+  screen.root
+    .find(
+      n =>
+        n.props.accessibilityLabel === 'Mobile number to add' &&
+        n.props.onChangeText,
+    )
+    .props.onChangeText(text);
+
+test('someone adding you rings like a call: Accept joins the meeting, and the ringing stops', async () => {
+  await render({ myId: 'dev' });
+  await act(() => socket.serverSends('meeting:invitation', INVITATION));
+  expect(api.invitation).toEqual(INVITATION);
+  expect(byLabel('Accept')).not.toHaveLength(0);
+  expect(byLabel('Decline')).not.toHaveLength(0);
+  expect(
+    screen.root.findAll(n => n.props.children === 'Bilal').length,
+  ).toBeGreaterThan(0);
+  expect(Vibration.vibrate).toHaveBeenCalledWith([0, 800, 1200], true);
+
+  socket.replies['meeting:join'] = {
+    ok: true,
+    meeting: snapshot([ASHA, BILAL, person('dev', 'Dev')]),
+    join: { ...JOIN, account: 'dev' },
+    chat: [],
+    you: { id: 'dev', role: 'participant' },
+  };
+  await act(() => button('Accept').props.onPress());
+  expect(sent('meeting:join')[0].payload).toEqual({ id: ID });
+  expect(api.invitation).toBeNull();
+  expect(api.status).toBe('live');
+  expect(Vibration.cancel).toHaveBeenCalled();
+  expect(byLabel('Accept')).toHaveLength(0);
+});
+
+test('Decline tells the server and closes the ringing screen', async () => {
+  await render({ myId: 'dev' });
+  await act(() => socket.serverSends('meeting:invitation', INVITATION));
+  await act(() => button('Decline').props.onPress());
+  expect(sent('meeting:decline')[0].payload).toEqual({ id: ID });
+  expect(api.invitation).toBeNull();
+  expect(sent('meeting:join')).toHaveLength(0);
+  expect(api.status).toBe('idle');
+});
+
+test("the ringing screen closes when the ringing stops (cancelled, timed out or the meeting ended); another meeting's message is ignored", async () => {
+  await render({ myId: 'dev' });
+  await act(() => socket.serverSends('meeting:invitation', INVITATION));
+  await act(() =>
+    socket.serverSends('meeting:invitation-ended', { id: 'zzz-zzzz-zzz' }),
+  );
+  expect(api.invitation).not.toBeNull();
+  await act(() => socket.serverSends('meeting:invitation-ended', { id: ID }));
+  expect(api.invitation).toBeNull();
+  expect(Vibration.cancel).toHaveBeenCalled();
+});
+
+test('if you are already in a meeting or on a call, an invitation is turned down without a screen', async () => {
+  await startedWithThree();
+  await act(() =>
+    socket.serverSends('meeting:invitation', {
+      ...INVITATION,
+      id: 'zzz-zzzz-zzz',
+    }),
+  );
+  expect(api.invitation).toBeNull();
+  expect(sent('meeting:decline').at(-1).payload).toEqual({
+    id: 'zzz-zzzz-zzz',
+  });
+
+  await act(() => screen.unmount());
+  await render({ myId: 'dev', call: { id: 'c1', status: 'connected' } });
+  await act(() => socket.serverSends('meeting:invitation', INVITATION));
+  expect(api.invitation).toBeNull();
+  expect(sent('meeting:decline')[0].payload).toEqual({ id: ID });
+});
+
+test('"Add people" in the meeting rings a number: the number is cleaned up, sent, and the card closes', async () => {
+  await startedWithThree();
+  await act(() => button('People').props.onPress());
+  await act(() => button('Add people').props.onPress());
+  expect(byLabel('Mobile number to add')).not.toHaveLength(0);
+
+  socket.replies['meeting:invite'] = {
+    ok: true,
+    invited: { id: '9876543210', name: 'Dev' },
+  };
+  await act(() => typeNumber('+91 98765-43210'));
+  await act(() => button('Add this number').props.onPress());
+  expect(sent('meeting:invite')[0].payload).toEqual({
+    id: ID,
+    to: '9876543210',
+  });
+  expect(byLabel('Mobile number to add')).toHaveLength(0); // closed
+  expect(api.notice).toBe('Ringing Dev…');
+});
+
+test('a number that is not valid is not sent, and a refusal from the server is explained on the card', async () => {
+  await startedWithThree();
+  await act(() => button('People').props.onPress());
+  await act(() => button('Add people').props.onPress());
+
+  await act(() => typeNumber('12345'));
+  await act(() => button('Add this number').props.onPress());
+  expect(sent('meeting:invite')).toHaveLength(0);
+  expect(
+    screen.root.findAll(
+      n => n.props.children === 'Enter a valid 10-digit mobile number.',
+    ).length,
+  ).toBeGreaterThan(0);
+
+  const cases = {
+    offline: 'They are not using Atiya Herbs right now.',
+    busy: 'They are on another call or meeting.',
+    'already-in': 'They are already in the meeting.',
+    locked: 'The meeting is locked.',
+    full: 'The meeting is full.',
+  };
+  for (const [error, text] of Object.entries(cases)) {
+    socket.replies['meeting:invite'] = { ok: false, error };
+    await act(() => typeNumber('98765 43210'));
+    await act(() => button('Add this number').props.onPress());
+    expect(
+      screen.root.findAll(
+        n =>
+          typeof n.props.children === 'string' &&
+          n.props.children.startsWith(text),
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(byLabel('Mobile number to add')).not.toHaveLength(0); // the card stays so another number can be tried
+  }
+  await act(() => button('Cancel adding').props.onPress());
+  expect(byLabel('Mobile number to add')).toHaveLength(0);
+});
+
+test('people being rung are listed as "Ringing…", and the one who rang (or the host) can stop it', async () => {
+  await startedWithThree();
+  await act(() =>
+    socket.serverSends(
+      'meeting:update',
+      snapshot([ASHA, BILAL, CHANDNI], {
+        invited: [
+          { id: 'dev', name: 'Dev', by: 'asha' },
+          { id: 'ravi', name: 'Ravi', by: 'bilal' },
+        ],
+      }),
+    ),
+  );
+  await act(() => button('People').props.onPress());
+  expect(api.invited.map(i => i.id)).toEqual(['dev', 'ravi']);
+  expect(byLabel('Stop ringing Dev')).not.toHaveLength(0); // Asha rang Dev
+  expect(byLabel('Stop ringing Ravi')).not.toHaveLength(0); // and Asha is the host
+  socket.replies['meeting:cancel-invite'] = { ok: true };
+  await act(() => button('Stop ringing Dev').props.onPress());
+  expect(sent('meeting:cancel-invite')[0].payload).toEqual({
+    id: ID,
+    userId: 'dev',
+  });
+
+  // a participant can stop only the ringing they started
+  await act(() => screen.unmount());
+  await render({ myId: 'chandni' });
+  socket.replies['meeting:join'] = {
+    ok: true,
+    meeting: snapshot([ASHA, CHANDNI], {
+      invited: [
+        { id: 'dev', name: 'Dev', by: 'asha' },
+        { id: 'ravi', name: 'Ravi', by: 'chandni' },
+      ],
+    }),
+    join: JOIN,
+    chat: [],
+    you: { id: 'chandni', role: 'participant' },
+  };
+  await act(() => api.joinMeeting(ID));
+  await act(() => button('People').props.onPress());
+  expect(byLabel('Stop ringing Dev')).toHaveLength(0);
+  expect(byLabel('Stop ringing Ravi')).not.toHaveLength(0);
+});
+
+test('you are told when someone you rang says no or does not answer', async () => {
+  await startedWithThree();
+  await act(() =>
+    socket.serverSends('meeting:invite-result', {
+      id: ID,
+      to: 'dev',
+      name: 'Dev',
+      result: 'declined',
+    }),
+  );
+  expect(api.notice).toBe('Dev declined.');
+  await act(() =>
+    socket.serverSends('meeting:invite-result', {
+      id: ID,
+      to: 'ravi',
+      name: 'Ravi',
+      result: 'no-answer',
+    }),
+  );
+  expect(api.notice).toBe('Ravi did not answer.');
+  await act(() =>
+    socket.serverSends('meeting:invite-result', {
+      id: 'zzz-zzzz-zzz',
+      to: 'x',
+      name: 'X',
+      result: 'declined',
+    }),
+  );
+  expect(api.notice).toBe('Ravi did not answer.'); // another meeting: ignored
+});
+
+test('when your call became a meeting, the app joins it by itself and clears the signal', async () => {
+  await render({
+    pendingMeetingId: ID,
+    replies: {
+      'meeting:join': {
+        ok: true,
+        meeting: snapshot([ASHA, BILAL]),
+        join: JOIN,
+        chat: [],
+        you: { id: 'asha', role: 'host' },
+      },
+    },
+  });
+  await act(() => flush());
+  expect(sent('meeting:join')[0].payload).toEqual({ id: ID });
+  expect(clearPending).toHaveBeenCalled();
+  expect(api.status).toBe('live');
+});
+
+test('numbers cannot be added when there is no meeting', async () => {
+  await render();
+  expect(
+    await (async () => {
+      let r;
+      await act(async () => {
+        r = await api.inviteByNumber('98765 43210');
+      });
+      return r;
+    })(),
+  ).toEqual({ ok: false, error: 'not-active' });
+  expect(sent('meeting:invite')).toHaveLength(0);
 });

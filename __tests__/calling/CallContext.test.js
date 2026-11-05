@@ -6,7 +6,11 @@ import { AudioSession } from '@livekit/react-native';
 import { Room as FakeRoom } from 'livekit-client';
 import { createAgoraRtcEngine } from 'react-native-agora';
 import { AuthProvider, useAuth } from '../../src/context/AuthContext';
-import { CallProvider, callUserId, useCall } from '../../src/calling/CallContext';
+import {
+  CallProvider,
+  callUserId,
+  useCall,
+} from '../../src/calling/CallContext';
 import CallOverlay from '../../src/calling/CallOverlay';
 
 // The first render loads the whole screen and its icon fonts, which is slow when tests run in parallel
@@ -575,7 +579,9 @@ const fakeAgoraEngine = () => {
 const ringingOutgoingCall = async video => {
   const socket = await render();
   await act(() => api.startCall(BILAL, video));
-  await act(() => sent(socket, 'call:start')[0].ack({ ok: true, callId: 'c1' }));
+  await act(() =>
+    sent(socket, 'call:start')[0].ack({ ok: true, callId: 'c1' }),
+  );
   return socket;
 };
 
@@ -585,12 +591,17 @@ test('a call the server puts on Agora joins with Agora (not LiveKit) and works l
 
   await act(() => socket.serverSends('call:ready', AGORA_READY));
   expect(FakeRoom.last).toBeNull(); // LiveKit is not used
-  expect(engine.initialize).toHaveBeenCalledWith(expect.objectContaining({ appId: 'app123' }));
+  expect(engine.initialize).toHaveBeenCalledWith(
+    expect.objectContaining({ appId: 'app123' }),
+  );
   expect(engine.joinChannelWithUserAccount).toHaveBeenCalledWith(
     '007agora-token',
     'call-c1',
     '9876543210',
-    expect.objectContaining({ publishMicrophoneTrack: true, publishCameraTrack: false }),
+    expect.objectContaining({
+      publishMicrophoneTrack: true,
+      publishCameraTrack: false,
+    }),
   );
   expect(engine.setEnableSpeakerphone).toHaveBeenLastCalledWith(false); // voice calls start on the earpiece
   expect(api.call.status).toBe('connecting');
@@ -636,10 +647,14 @@ test('an Agora video call shows both cameras, and the camera button and flip but
 
   await act(() => engine.handler.onUserJoined({}, 77, 0));
   await act(() => api.toggleCamera());
-  expect(engine.updateChannelMediaOptions).toHaveBeenLastCalledWith({ publishCameraTrack: false });
+  expect(engine.updateChannelMediaOptions).toHaveBeenLastCalledWith({
+    publishCameraTrack: false,
+  });
   expect(api.localVideo).toBeNull();
   await act(() => api.toggleCamera());
-  expect(engine.updateChannelMediaOptions).toHaveBeenLastCalledWith({ publishCameraTrack: true });
+  expect(engine.updateChannelMediaOptions).toHaveBeenLastCalledWith({
+    publishCameraTrack: true,
+  });
   expect(api.localVideo).toEqual({ agora: true, uid: 0 });
 
   await act(() => api.flipCamera());
@@ -650,7 +665,12 @@ test('an Agora video call shows both cameras, and the camera button and flip but
 test('an Agora call has no Record button even when the server can record, and a LiveKit call keeps it', async () => {
   const engine = fakeAgoraEngine();
   const socket = await ringingOutgoingCall(false);
-  await act(() => socket.serverSends('session', { activeCallId: 'c1', recordingAvailable: true }));
+  await act(() =>
+    socket.serverSends('session', {
+      activeCallId: 'c1',
+      recordingAvailable: true,
+    }),
+  );
   await act(() => socket.serverSends('call:ready', AGORA_READY));
   await act(() => engine.handler.onUserJoined({}, 77, 0));
   expect(api.call.status).toBe('connected');
@@ -737,4 +757,161 @@ test('losing LiveKit before the call ever connected asks for Agora instead of en
   await act(() => room.fire('Disconnected'));
   expect(sent(socket, 'call:fallback')).toHaveLength(1);
   expect(sent(socket, 'call:end')).toHaveLength(0);
+});
+
+// ---- adding a third person to a call that is going on ----
+
+const typeNumberOnCard = text =>
+  screen.root
+    .find(
+      n =>
+        n.props.accessibilityLabel === 'Mobile number to add' &&
+        n.props.onChangeText,
+    )
+    .props.onChangeText(text);
+
+test('adding a person to a connected call asks the server, with the number cleaned up', async () => {
+  const { socket } = await connectedOutgoingCall(false);
+  let result;
+  await act(() => {
+    result = api.addPersonToCall('+91 98765-43210');
+  });
+  expect(sent(socket, 'call:add')[0].payload).toEqual({
+    callId: 'c1',
+    to: '9876543210',
+  });
+  await act(() =>
+    sent(socket, 'call:add')[0].ack({ ok: true, meetingId: 'abc-defg-hij' }),
+  );
+  expect(await result).toEqual({ ok: true, meetingId: 'abc-defg-hij' });
+});
+
+test('a number that is not valid, or a call that is not connected yet, is not sent to the server', async () => {
+  const { socket } = await connectedOutgoingCall(false);
+  let result;
+  await act(async () => {
+    result = await api.addPersonToCall('12345');
+  });
+  expect(result).toEqual({ ok: false, error: 'invalid-number' });
+  expect(sent(socket, 'call:add')).toHaveLength(0);
+
+  await act(() => button('End call').props.onPress());
+  await act(() => new Promise(resolve => setTimeout(resolve, 1700))); // the "call ended" screen closes
+  await act(() => api.startCall(BILAL, false)); // ringing, not connected
+  await act(async () => {
+    result = await api.addPersonToCall('9876543210');
+  });
+  expect(result).toEqual({ ok: false, error: 'not-active' });
+});
+
+test('the call screen offers "Add person" only once the call is connected', async () => {
+  const socket = await render();
+  await act(() => api.startCall(BILAL, false));
+  expect(byLabelOrNull('Add person')).toHaveLength(0); // calling
+
+  await act(() =>
+    sent(socket, 'call:start')[0].ack({ ok: true, callId: 'c1' }),
+  );
+  await act(() => socket.serverSends('call:ready', READY));
+  const room = FakeRoom.last;
+  expect(byLabelOrNull('Add person')).toHaveLength(0); // connecting
+
+  room.remoteParticipants.set('bilal', remotePerson());
+  await act(() => room.fire('ParticipantConnected'));
+  expect(byLabelOrNull('Add person').length).toBeGreaterThan(0); // connected
+});
+
+test('Add person: type or pick a number, the server is asked, and the card closes when it works', async () => {
+  const { socket } = await connectedOutgoingCall(false);
+  await act(() => button('Add person').props.onPress());
+  expect(byLabelOrNull('Mobile number to add').length).toBeGreaterThan(0);
+
+  await act(() => typeNumberOnCard('98765 43210'));
+  await act(() => {
+    button('Add this number').props.onPress(); // the answer comes later, so do not wait for it here
+  });
+  expect(sent(socket, 'call:add')[0].payload).toEqual({
+    callId: 'c1',
+    to: '9876543210',
+  });
+  await act(() =>
+    sent(socket, 'call:add')[0].ack({ ok: true, meetingId: 'abc-defg-hij' }),
+  );
+  expect(byLabelOrNull('Mobile number to add')).toHaveLength(0);
+});
+
+test('Add person: a number that is not valid, or one the server refuses, is explained and the card stays open', async () => {
+  const { socket } = await connectedOutgoingCall(false);
+  await act(() => button('Add person').props.onPress());
+
+  await act(() => typeNumberOnCard('12345'));
+  await act(() => {
+    button('Add this number').props.onPress(); // the answer comes later, so do not wait for it here
+  });
+  expect(sent(socket, 'call:add')).toHaveLength(0);
+  expect(
+    screen.root.findAll(
+      n => n.props.children === 'Enter a valid 10-digit mobile number.',
+    ).length,
+  ).toBeGreaterThan(0);
+
+  await act(() => typeNumberOnCard('98765 43210'));
+  await act(() => {
+    button('Add this number').props.onPress(); // the answer comes later, so do not wait for it here
+  });
+  await act(() =>
+    sent(socket, 'call:add')[0].ack({ ok: false, error: 'offline' }),
+  );
+  expect(
+    screen.root.findAll(
+      n =>
+        typeof n.props.children === 'string' &&
+        n.props.children.startsWith(
+          'They are not using Atiya Herbs right now.',
+        ),
+    ).length,
+  ).toBeGreaterThan(0);
+  expect(byLabelOrNull('Mobile number to add').length).toBeGreaterThan(0);
+  expect(api.call.status).toBe('connected'); // the call goes on
+
+  await act(() => button('Cancel adding').props.onPress());
+  expect(byLabelOrNull('Mobile number to add')).toHaveLength(0);
+});
+
+test('when the call becomes a meeting, the one-to-one call closes quietly, is logged, and the meeting is signalled', async () => {
+  const { socket, room } = await connectedOutgoingCall(false);
+  await act(() =>
+    socket.serverSends('call:upgrade', {
+      callId: 'c1',
+      meetingId: 'abc-defg-hij',
+    }),
+  );
+  expect(api.call).toBeNull(); // no "call ended" screen to wait for
+  expect(room.disconnect).toHaveBeenCalled();
+  expect(AudioSession.stopAudioSession).toHaveBeenCalled();
+  expect(api.pendingMeetingId).toBe('abc-defg-hij');
+  expect(api.history[0]).toMatchObject({ peer: BILAL, outcome: 'answered' });
+  expect(sent(socket, 'call:end')).toHaveLength(0); // the server already closed the call
+
+  // the server's "call ended: upgraded" that follows changes nothing
+  await act(() =>
+    socket.serverSends('call:ended', { callId: 'c1', reason: 'upgraded' }),
+  );
+  expect(api.history).toHaveLength(1);
+  expect(api.call).toBeNull();
+
+  await act(() => api.clearPendingMeetingId());
+  expect(api.pendingMeetingId).toBeNull();
+});
+
+test('a call that became a meeting is not mixed up with another call', async () => {
+  const { socket } = await connectedOutgoingCall(false);
+  await act(() =>
+    socket.serverSends('call:upgrade', {
+      callId: 'someone-elses',
+      meetingId: 'abc-defg-hij',
+    }),
+  );
+  expect(api.call.status).toBe('connected');
+  expect(api.pendingMeetingId).toBeNull();
 });
