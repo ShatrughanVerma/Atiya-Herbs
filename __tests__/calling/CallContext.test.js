@@ -915,3 +915,13 @@ test('a call that became a meeting is not mixed up with another call', async () 
   expect(api.call.status).toBe('connected');
   expect(api.pendingMeetingId).toBeNull();
 });
+
+test('Minimize shrinks the call to a bar, and tapping the bar brings the call screen back', async () => {
+  await connectedOutgoingCall(false);
+  expect(byLabelOrNull('End call').length).toBeGreaterThan(0);
+  await act(() => button('Minimize call').props.onPress());
+  expect(byLabelOrNull('End call')).toHaveLength(0);
+  expect(byLabelOrNull('Return to call').length).toBeGreaterThan(0);
+  await act(() => button('Return to call').props.onPress());
+  expect(byLabelOrNull('End call').length).toBeGreaterThan(0);
+});

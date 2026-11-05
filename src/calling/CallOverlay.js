@@ -102,9 +102,9 @@ const statusText = (call, duration) => {
   }
 };
 
-function Action({ icon, label, onPress, size, active = false }) {
+function Action({ icon, label, text, onPress, size, cell, active = false }) {
   return (
-    <View style={styles.action}>
+    <View style={[styles.action, cell && { width: cell }]}>
       <Pressable
         onPress={onPress}
         style={[
@@ -122,6 +122,15 @@ function Action({ icon, label, onPress, size, active = false }) {
           color={active ? BG : '#fff'}
         />
       </Pressable>
+      {!!text && (
+        <Text
+          style={styles.actionLabel}
+          numberOfLines={1}
+          maxFontSizeMultiplier={1.2}
+        >
+          {text}
+        </Text>
+      )}
     </View>
   );
 }
@@ -179,6 +188,23 @@ export default function CallOverlay() {
   } = useCall();
   const duration = useTimer(call?.connectedAt);
   const [addOpen, setAddOpen] = useState(false); // the "add someone by number" card
+  const [minimized, setMinimized] = useState(false); // call shrunk to a bar so the app can be used
+  const [slow, setSlow] = useState(false); // we have been calling for a while and they have not answered
+  const callId = call?.id;
+  const waiting =
+    call?.direction === 'outgoing' &&
+    (call?.status === 'calling' || call?.status === 'ringing');
+  useEffect(() => {
+    setMinimized(false);
+  }, [callId]);
+  useEffect(() => {
+    setSlow(false);
+    if (!waiting) {
+      return;
+    }
+    const timer = setTimeout(() => setSlow(true), 15000);
+    return () => clearTimeout(timer);
+  }, [callId, waiting]);
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
   // Recording is built on LiveKit, so a call that runs on Agora cannot be recorded
@@ -192,9 +218,10 @@ export default function CallOverlay() {
     width: window.width,
     height: window.height,
     insets,
-    actionCount:
-      3 + (localVideo ? 1 : 0) + (showRecord ? 1 : 0) + (canAdd ? 1 : 0),
   });
+  // The controls sit in a grid of three, with the name of each under it
+  const cell = Math.floor((m.contentWidth - 40) / 3);
+  const btn = clamp(cell - 28, 48, 68);
 
   if (!call) {
     return null;
@@ -202,6 +229,28 @@ export default function CallOverlay() {
 
   const incoming = call.direction === 'incoming' && call.status === 'ringing';
   const ended = call.status === 'ended';
+
+  if (minimized && !incoming && !ended) {
+    return (
+      <View
+        style={[styles.miniWrap, { top: insets.top + 6 }]}
+        pointerEvents="box-none"
+      >
+        <Pressable
+          style={styles.mini}
+          onPress={() => setMinimized(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Return to call"
+        >
+          <Icon name="phone-in-talk" size={18} color="#fff" />
+          <Text style={styles.miniText} numberOfLines={1}>
+            {call.peer.name} · {statusText(call, duration)}
+          </Text>
+          <Text style={styles.miniTap}>Tap to return</Text>
+        </Pressable>
+      </View>
+    );
+  }
   const number = formatMobile(call.peer.id);
   const peerState = [
     peerMedia.muted && 'Muted',
@@ -229,7 +278,18 @@ export default function CallOverlay() {
         )}
         <SafeAreaView style={styles.content} edges={['top', 'bottom']}>
           <View style={styles.topBar}>
-            <View style={styles.topSide} />
+            {!incoming && !ended ? (
+              <Pressable
+                style={styles.topBtn}
+                onPress={() => setMinimized(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Minimize call"
+              >
+                <Icon name="arrow-collapse" size={22} color="#fff" />
+              </Pressable>
+            ) : (
+              <View style={styles.topBtn} />
+            )}
             {recording === 'on' && !ended ? (
               <View
                 style={styles.recordingBadge}
@@ -243,7 +303,18 @@ export default function CallOverlay() {
                 <Text style={styles.encryptedText}>Atiya Herbs call</Text>
               </View>
             )}
-            <View style={styles.topSide} />
+            {canAdd && !ended ? (
+              <Pressable
+                style={styles.topBtn}
+                onPress={() => setAddOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Add person"
+              >
+                <Icon name="account-plus" size={22} color="#fff" />
+              </Pressable>
+            ) : (
+              <View style={styles.topBtn} />
+            )}
           </View>
 
           <View style={[styles.header, { paddingTop: m.headerTop }]}>
@@ -275,6 +346,14 @@ export default function CallOverlay() {
               </View>
             )}
           </View>
+
+          {slow && waiting && !ended && (
+            <View style={styles.slowBanner}>
+              <Text style={styles.slowText} maxFontSizeMultiplier={1.2}>
+                Still trying to reach {call.peer.name}
+              </Text>
+            </View>
+          )}
 
           <View style={styles.middle}>
             {bigVideo ? null : <Avatar name={call.peer.name} size={m.avatar} />}
@@ -343,36 +422,44 @@ export default function CallOverlay() {
                   <Action
                     icon="volume-high"
                     label="Speaker"
-                    size={m.actionSize}
+                    text="Speaker"
+                    size={btn}
+                    cell={cell}
                     active={speakerOn}
                     onPress={toggleSpeaker}
                   />
                   <Action
                     icon={cameraOn ? 'video' : 'video-off'}
                     label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
-                    size={m.actionSize}
+                    text="Video"
+                    size={btn}
+                    cell={cell}
                     active={cameraOn}
                     onPress={toggleCamera}
+                  />
+                  <Action
+                    icon={muted ? 'microphone-off' : 'microphone'}
+                    label={muted ? 'Unmute' : 'Mute'}
+                    text={muted ? 'Unmute' : 'Mute'}
+                    size={btn}
+                    cell={cell}
+                    active={muted}
+                    onPress={toggleMute}
                   />
                   {localVideo && (
                     <Action
                       icon="camera-flip-outline"
                       label="Switch camera"
-                      size={m.actionSize}
+                      text="Flip"
+                      size={btn}
+                      cell={cell}
                       onPress={flipCamera}
-                    />
-                  )}
-                  {canAdd && (
-                    <Action
-                      icon="account-plus"
-                      label="Add person"
-                      size={m.actionSize}
-                      onPress={() => setAddOpen(true)}
                     />
                   )}
                   {showRecord && (
                     <Action
-                      size={m.actionSize}
+                      size={btn}
+                      cell={cell}
                       icon={
                         recording === 'on'
                           ? 'record-circle'
@@ -385,6 +472,7 @@ export default function CallOverlay() {
                           ? 'Waiting for them to allow recording'
                           : 'Record call'
                       }
+                      text={recording === 'on' ? 'Stop' : 'Record'}
                       active={recording === 'on'}
                       onPress={
                         recording === 'on'
@@ -395,32 +483,26 @@ export default function CallOverlay() {
                       }
                     />
                   )}
-                  <Action
-                    icon={muted ? 'microphone-off' : 'microphone'}
-                    label={muted ? 'Unmute' : 'Mute'}
-                    size={m.actionSize}
-                    active={muted}
-                    onPress={toggleMute}
-                  />
-                  <Pressable
-                    onPress={endCall}
-                    style={[
-                      styles.endBtn,
-                      {
-                        width: m.endSize,
-                        height: m.endSize,
-                        borderRadius: m.endSize / 2,
-                      },
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel="End call"
-                  >
-                    <Icon
-                      name="phone-hangup"
-                      size={Math.round(m.endSize * 0.44)}
-                      color="#fff"
-                    />
-                  </Pressable>
+                  <View style={[styles.action, { width: cell }]}>
+                    <Pressable
+                      onPress={endCall}
+                      style={[
+                        styles.endBtn,
+                        { width: btn, height: btn, borderRadius: btn / 2 },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel="End call"
+                    >
+                      <Icon
+                        name="phone-hangup"
+                        size={Math.round(btn * 0.46)}
+                        color="#fff"
+                      />
+                    </Pressable>
+                    <Text style={styles.actionLabel} maxFontSizeMultiplier={1.2}>
+                      End
+                    </Text>
+                  </View>
                 </View>
               )}
             </View>
@@ -470,7 +552,41 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
   },
-  topSide: { width: 30 },
+  topBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  slowBanner: {
+    alignSelf: 'center',
+    backgroundColor: PANEL,
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    marginTop: 12,
+  },
+  slowText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  miniWrap: { position: 'absolute', left: 12, right: 12, zIndex: 50 },
+  mini: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: GREEN,
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    height: 44,
+    elevation: 8,
+  },
+  miniText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  miniTap: { color: '#fff', fontSize: 12, marginLeft: 8 },
   recordingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -564,10 +680,10 @@ const styles = StyleSheet.create({
   actionsRow: {
     alignSelf: 'center',
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
   },
-  action: { alignItems: 'center' },
+  action: { alignItems: 'center', marginBottom: 14 },
+  actionLabel: { color: '#fff', fontSize: 13, marginTop: 6 },
   actionBtn: {
     width: 56,
     height: 56,

@@ -25,6 +25,7 @@ export default function AddPersonCard({ title, note, onAdd, onClose }) {
   const [number, setNumber] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [picked, setPicked] = useState(null); // name of the contact just picked, to show it landed in the box
 
   const submit = async () => {
     const mobile = normalizeMobile(number);
@@ -56,6 +57,7 @@ export default function AddPersonCard({ title, note, onAdd, onClose }) {
       }
       setError('');
       setNumber(mobile);
+      setPicked(contact.name || '');
     } catch (e) {
       setError('Could not open your contacts.');
     }
@@ -77,6 +79,7 @@ export default function AddPersonCard({ title, note, onAdd, onClose }) {
               value={number}
               onChangeText={text => {
                 setNumber(text);
+                setPicked(null);
                 setError('');
               }}
               placeholder="Mobile number"
@@ -99,7 +102,11 @@ export default function AddPersonCard({ title, note, onAdd, onClose }) {
             )}
           </View>
           {!!normalizeMobile(number) && (
-            <Text style={styles.preview}>{formatMobile(number)}</Text>
+            <Text style={styles.preview}>
+              {picked !== null
+                ? `Selected${picked ? ` ${picked}` : ''}: ${formatMobile(number)}`
+                : formatMobile(number)}
+            </Text>
           )}
           {!!error && (
             <Text style={styles.error} accessibilityRole="alert">
