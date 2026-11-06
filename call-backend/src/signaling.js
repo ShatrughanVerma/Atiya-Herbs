@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 //   call:reject {callId}     callee declines
 //   call:end    {callId}     either side hangs up (or the caller cancels while it rings)
 //   call:add    {callId, to}  (ack → {ok, meetingId} or {ok: false, error}) add a third person to a call that is going on:
-//                            the call becomes a group meeting (meetings.js), both people get call:upgrade, and `to` is rung
+//                            the call becomes a conference call (conferences.js), both people get call:upgrade, and `to` is rung
 //   call:fallback {callId}   (ack {ok}) a phone that cannot connect through LiveKit asks for the call to be moved to
 //                            Agora; both people then get a new call:ready
 // Server → client
@@ -18,7 +18,7 @@ const crypto = require('node:crypto');
 //   call:incoming {callId, from: {id, name}, video}
 //   call:ready    {callId, provider, ...}           both people, after accept: join the call. LiveKit sends
 //                                                   {serverUrl, token}; Agora sends {appId, channel, account, token}
-//   call:upgrade  {callId, meetingId}               the call became a group meeting: join it (meeting:join)
+//   call:upgrade  {callId, conferenceId}            the call became a conference call: join it (conference:join)
 //   call:ended    {callId, reason: 'rejected'|'cancelled'|'no-answer'|'ended'|'disconnected'|'upgraded'}
 //
 // Recording (only during a connected call, and only after the OTHER person agrees)
@@ -39,8 +39,8 @@ function attachSignaling(
     recording = NO_RECORDING,
     ringTimeoutMs = 45000,
     reconnectGraceMs = 15000,
-    isInMeeting = () => false,
-    startMeetingFromCall = () => ({ok: false, error: 'not-configured'}),
+    isInMeeting = () => false, // in a meeting or a conference call: the microphone is taken
+    startConferenceFromCall = () => ({ok: false, error: 'not-configured'}),
     log = () => {},
   },
 ) {
@@ -187,7 +187,7 @@ function attachSignaling(
     });
 
     // Add a third person to a call that is going on (the same idea as "add participant" in WhatsApp). The call is
-    // turned into a group meeting: the two people are told to join it, the one-to-one call is closed, and the new
+    // turned into a conference call: the two people are told to join it, the one-to-one call is closed, and the new
     // person's phone rings. If the new person cannot be rung (offline, busy...) nothing changes and the call goes on.
     socket.on('call:add', (payload, ack) => {
       const reply = typeof ack === 'function' ? ack : () => {};
@@ -195,21 +195,22 @@ function attachSignaling(
       if (!call || call.state !== 'active') {
         return reply({ok: false, error: 'not-active'});
       }
-      const result = startMeetingFromCall({
+      const result = startConferenceFromCall({
         hostId: me,
         hostName: user.name,
         members: [call.caller, call.callee],
         invitee: normalizeId(payload.to),
+        video: call.video,
       });
       if (!result.ok) {
         return reply(result);
       }
-      reply({ok: true, meetingId: result.meetingId});
+      reply({ok: true, conferenceId: result.conferenceId});
       for (const userId of [call.caller, call.callee]) {
-        emitTo(userId, 'call:upgrade', {callId: call.id, meetingId: result.meetingId});
+        emitTo(userId, 'call:upgrade', {callId: call.id, conferenceId: result.conferenceId});
       }
       endCall(call.id, 'upgraded');
-      log(`call moved to a group meeting, ${calls.size} calls active`);
+      log(`call moved to a conference call, ${calls.size} calls active`);
     });
 
     // A phone could not connect through LiveKit (for example its free limit is used up): move the call to Agora.

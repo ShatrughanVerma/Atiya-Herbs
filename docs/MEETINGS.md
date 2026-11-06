@@ -32,24 +32,17 @@ In the meeting: mic, camera, switch camera, speaker/earpiece, **share screen** (
 The top bar shows the name, id, **timer** and how many are in. The person who is talking gets an orange frame.
 A meeting starts with the **camera off**. Up to **8 tiles + a "+N more" tile** are drawn; everyone is in the People list.
 
-### Adding people by mobile number (and turning a call into a group call)
+### Adding people by mobile number
 
 Anyone in a meeting can **add a person by mobile number**: People -> **Add people by mobile number**, type the number
 (or pick a contact) and tap Add. That person's phone **rings** with an **Accept / Decline** screen (like an incoming
 call). Accept joins the meeting; Decline, or no answer for 45 seconds, tells whoever rang. Everyone sees the person as
 "Ringing..." in the People list, and whoever rang (or the host) can stop the ringing.
 
-During a normal **one-to-one call** the call screen has an **Add person** button (once the call is connected). Either
-of the two people can use it: the call turns into a group call, **both people move over automatically** (the one-to-one
-call is logged and closed, then both join the meeting), and the new number is rung. The person who pressed Add is the
-host. Add as many as you like afterwards (up to the meeting limit).
-
-- If the new person cannot be rung (not using the app right now, on another call or meeting, ...) **nothing changes**:
-  the call goes on and the app says why.
-- A group call runs on Agora, so it **uses Agora's free minutes** (not LiveKit's) and **is not recorded**; a recording
-  that was running on the one-to-one call stops when it moves over. There is a short break (a few seconds) while both
-  people move to the new room.
+- If the person cannot be rung (not using the app right now, on a call, meeting or conference, ...) the app says why.
 - Locked meetings: only the host can ring someone. A person the host rang may enter even though it is locked.
+- Adding a person to a one-to-one **call** is a different feature: it makes a **conference call**, not a meeting
+  (see `docs/CONFERENCE.md`). Meetings and conference calls are separate and do not share rooms or screens.
 
 ### Host controls
 Only the host (the person who started it, or the longest-standing person if the host leaves) can:
@@ -82,7 +75,6 @@ because the app already has that connection and the live state is real-time. The
 | `meeting:share {id, sharing}` | Start / stop sharing (one at a time) |
 | `meeting:invite {id, to}` | Anyone in it: ring a mobile number to join |
 | `meeting:decline {id}` / `meeting:cancel-invite {id, userId}` | The person rung says no / whoever rang stops the ringing |
-| `call:add {callId, to}` | On a one-to-one call: add a person. Turns the call into a meeting (both get `call:upgrade`) and rings `to` |
 | `meeting:token {id}` | A fresh Agora token (the app asks before the 4-hour token runs out) |
 | `meeting:info {id}`, `meeting:list` | What a link shows; your recent meetings |
 
@@ -91,7 +83,6 @@ because the app already has that connection and the live state is real-time. The
 | `meeting:update` | The whole picture (title, host, locked, people, who shares), on every change |
 | `meeting:chat`, `meeting:mute-request`, `meeting:removed`, `meeting:ended` | Chat message; host asks you to mute; you were removed; it is over |
 | `meeting:invitation`, `meeting:invitation-ended`, `meeting:invite-result` | You are being rung; the ringing stopped; what happened to someone you rang (`declined`, `no-answer`) |
-| `call:upgrade {callId, meetingId}` | Your call became a meeting: leave the call and join it (the call then ends with reason `upgraded`) |
 
 **HTTP:** `GET /meetings/<id>` returns the public basics (title, host name, live or ended, locked, how many people).
 It never returns a token. `/health` now also shows how many meetings are live.

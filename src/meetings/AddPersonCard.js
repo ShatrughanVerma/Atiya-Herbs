@@ -16,13 +16,19 @@ import {
   pickContactNumber,
 } from '../calling/contactPicker';
 import { formatMobile, normalizeMobile } from '../calling/phone';
-import { ADD_PERSON_ERRORS } from './MeetingContext';
+import { ADD_PERSON_ERRORS } from '../calling/addPersonErrors';
 
 // A card over the call or meeting screen to add someone by mobile number (typed, or picked from the phone's
 // contacts). It is a Modal of its own, so it is always drawn above the call screen.
 // `onAdd(number)` resolves to {ok} or {ok: false, error}; on success the card closes itself.
 
-export default function AddPersonCard({ title, note, onAdd, onClose }) {
+export default function AddPersonCard({
+  title,
+  note,
+  onAdd,
+  onClose,
+  errors = ADD_PERSON_ERRORS, // what to say for each reason the server may give
+}) {
   const [number, setNumber] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -31,7 +37,7 @@ export default function AddPersonCard({ title, note, onAdd, onClose }) {
   const submit = async () => {
     const mobile = normalizeMobile(number);
     if (!mobile) {
-      setError(ADD_PERSON_ERRORS['invalid-number']);
+      setError(errors['invalid-number'] || ADD_PERSON_ERRORS['invalid-number']);
       return;
     }
     setError('');
@@ -41,7 +47,7 @@ export default function AddPersonCard({ title, note, onAdd, onClose }) {
     if (res?.ok) {
       onClose();
     } else {
-      setError(ADD_PERSON_ERRORS[res?.error] || ADD_PERSON_ERRORS.failed);
+      setError(errors[res?.error] || ADD_PERSON_ERRORS.failed);
     }
   };
 

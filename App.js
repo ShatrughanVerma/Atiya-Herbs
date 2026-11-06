@@ -9,6 +9,9 @@ import CallOverlay from './src/calling/CallOverlay';
 import { MeetingProvider } from './src/meetings/MeetingContext';
 import MeetingRoom from './src/meetings/MeetingRoom';
 import MeetingInvite from './src/meetings/MeetingInvite';
+import { ConferenceProvider } from './src/conference/ConferenceContext';
+import ConferenceRoom from './src/conference/ConferenceRoom';
+import ConferenceInvite from './src/conference/ConferenceInvite';
 
 export default function App() {
   return (
@@ -22,13 +25,19 @@ export default function App() {
         <CartProvider>
           <CallProvider>
             <MeetingProvider>
-              <AppNavigator />
-              {/* Above every screen, so calls ring and continue wherever the user is */}
-              <CallOverlay />
-              {/* Group meetings (Agora), also above every screen while you are in one */}
-              <MeetingRoom />
-              {/* Someone is adding you to a group call: it rings like a call */}
-              <MeetingInvite />
+              <ConferenceProvider>
+                <AppNavigator />
+                {/* Above every screen, so calls ring and continue wherever the user is */}
+                <CallOverlay />
+                {/* Conference calls: a call that grew into a group call (Agora) */}
+                <ConferenceRoom />
+                {/* Someone is adding you to a group call: it rings like a call */}
+                <ConferenceInvite />
+                {/* Group meetings (Agora), also above every screen while you are in one. Separate from conferences. */}
+                <MeetingRoom />
+                {/* Someone is adding you to a meeting: it rings like a call */}
+                <MeetingInvite />
+              </ConferenceProvider>
             </MeetingProvider>
           </CallProvider>
         </CartProvider>

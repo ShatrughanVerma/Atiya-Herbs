@@ -10,7 +10,7 @@ import React, {
 import { Alert, Linking, Platform, Vibration } from 'react-native';
 import { useCall } from '../calling/CallContext';
 import { ensureCallPermissions } from '../calling/permissions';
-import { joinMeetingChannel } from './meetingAgora';
+import { joinGroupChannel } from '../calling/groupAgora';
 import { normalizeMobile } from '../calling/phone';
 import { parseMeetingLink } from './meetingLayout';
 
@@ -38,26 +38,6 @@ const MEETING_ERRORS = {
   failed: 'Something went wrong. Please try again.',
 };
 
-// Why a number could not be rung into the meeting (or the call) -> what we tell the user
-export const ADD_PERSON_ERRORS = {
-  'invalid-number': 'Enter a valid 10-digit mobile number.',
-  self: 'That is your own number.',
-  offline:
-    'They are not using Atiya Herbs right now. They can be added when the app is open on their phone.',
-  busy: 'They are on another call or meeting.',
-  'already-in': 'They are already in the meeting.',
-  'already-invited': 'They are already being rung.',
-  removed: 'The host removed them from this meeting.',
-  locked: 'The meeting is locked. Only the host can add people.',
-  full: 'The meeting is full.',
-  'not-active': 'The call is not connected.',
-  'not-configured': 'Group calls are not set up on the server yet.',
-  'in-meeting': 'You are already in a meeting.',
-  'slow-down': 'You are adding people too fast. Wait a moment.',
-  timeout: 'The server did not answer. Check your internet and try again.',
-  failed: 'Something went wrong. Please try again.',
-};
-
 const NOBODY = []; // one shared empty list, so an empty "being rung" list does not look like a change each time
 
 const SPEAKING_VOLUME = 30; // of 255: below this it is background noise
@@ -65,8 +45,7 @@ const NOTICE_MS = 4000;
 const ASK_TIMEOUT_MS = 8000;
 
 export function MeetingProvider({ children }) {
-  const { socket, myId, call, pendingMeetingId, clearPendingMeetingId } =
-    useCall();
+  const { socket, myId, call } = useCall();
   const callActive = !!call && call.status !== 'ended';
 
   const [status, setStatus] = useState('idle'); // idle | joining | live
@@ -235,7 +214,7 @@ export function MeetingProvider({ children }) {
           }
         },
       };
-      const agora = await joinMeetingChannel({ ...res.join, handlers });
+      const agora = await joinGroupChannel({ ...res.join, handlers });
       if (statusRef.current !== 'joining') {
         agora.leave(); // the person left while it was still connecting
         return false;
@@ -674,16 +653,6 @@ export function MeetingProvider({ children }) {
     }
   }, [socket, teardown]);
 
-  // A meeting link (atiyaherbs://meeting/abc-defg-hij) opens the app and offers to join
-  // Someone was added to the call you were on: the call became a meeting, so join it
-  useEffect(() => {
-    if (pendingMeetingId && statusRef.current === 'idle') {
-      const id = pendingMeetingId;
-      clearPendingMeetingId();
-      joinMeeting(id);
-    }
-  }, [pendingMeetingId, clearPendingMeetingId, joinMeeting]);
-
   // Logging out stops any ringing screen
   useEffect(() => {
     if (!socket) {
@@ -691,6 +660,7 @@ export function MeetingProvider({ children }) {
     }
   }, [socket, clearInvitation]);
 
+  // A meeting link (atiyaherbs://meeting/abc-defg-hij) opens the app and offers to join
   const joinRef = useRef(joinMeeting);
   joinRef.current = joinMeeting;
   useEffect(() => {

@@ -781,9 +781,9 @@ test('adding a person to a connected call asks the server, with the number clean
     to: '9876543210',
   });
   await act(() =>
-    sent(socket, 'call:add')[0].ack({ ok: true, meetingId: 'abc-defg-hij' }),
+    sent(socket, 'call:add')[0].ack({ ok: true, conferenceId: 'abcdefghij' }),
   );
-  expect(await result).toEqual({ ok: true, meetingId: 'abc-defg-hij' });
+  expect(await result).toEqual({ ok: true, conferenceId: 'abcdefghij' });
 });
 
 test('a number that is not valid, or a call that is not connected yet, is not sent to the server', async () => {
@@ -835,7 +835,7 @@ test('Add person: type or pick a number, the server is asked, and the card close
     to: '9876543210',
   });
   await act(() =>
-    sent(socket, 'call:add')[0].ack({ ok: true, meetingId: 'abc-defg-hij' }),
+    sent(socket, 'call:add')[0].ack({ ok: true, conferenceId: 'abcdefghij' }),
   );
   expect(byLabelOrNull('Mobile number to add')).toHaveLength(0);
 });
@@ -878,18 +878,18 @@ test('Add person: a number that is not valid, or one the server refuses, is expl
   expect(byLabelOrNull('Mobile number to add')).toHaveLength(0);
 });
 
-test('when the call becomes a meeting, the one-to-one call closes quietly, is logged, and the meeting is signalled', async () => {
+test('when the call becomes a conference call, the one-to-one call closes quietly, is logged, and the conference is signalled', async () => {
   const { socket, room } = await connectedOutgoingCall(false);
   await act(() =>
     socket.serverSends('call:upgrade', {
       callId: 'c1',
-      meetingId: 'abc-defg-hij',
+      conferenceId: 'abcdefghij',
     }),
   );
   expect(api.call).toBeNull(); // no "call ended" screen to wait for
   expect(room.disconnect).toHaveBeenCalled();
   expect(AudioSession.stopAudioSession).toHaveBeenCalled();
-  expect(api.pendingMeetingId).toBe('abc-defg-hij');
+  expect(api.pendingConferenceId).toBe('abcdefghij');
   expect(api.history[0]).toMatchObject({ peer: BILAL, outcome: 'answered' });
   expect(sent(socket, 'call:end')).toHaveLength(0); // the server already closed the call
 
@@ -900,20 +900,20 @@ test('when the call becomes a meeting, the one-to-one call closes quietly, is lo
   expect(api.history).toHaveLength(1);
   expect(api.call).toBeNull();
 
-  await act(() => api.clearPendingMeetingId());
-  expect(api.pendingMeetingId).toBeNull();
+  await act(() => api.clearPendingConferenceId());
+  expect(api.pendingConferenceId).toBeNull();
 });
 
-test('a call that became a meeting is not mixed up with another call', async () => {
+test('a call that became a conference is not mixed up with another call', async () => {
   const { socket } = await connectedOutgoingCall(false);
   await act(() =>
     socket.serverSends('call:upgrade', {
       callId: 'someone-elses',
-      meetingId: 'abc-defg-hij',
+      conferenceId: 'abcdefghij',
     }),
   );
   expect(api.call.status).toBe('connected');
-  expect(api.pendingMeetingId).toBeNull();
+  expect(api.pendingConferenceId).toBeNull();
 });
 
 test('Minimize shrinks the call to a bar, and tapping the bar brings the call screen back', async () => {

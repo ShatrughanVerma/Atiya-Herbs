@@ -90,10 +90,10 @@ export function CallProvider({ children }) {
   const myName = user?.name || myId;
 
   const [serverConnected, setServerConnected] = useState(false);
-  // The connection to the call server, shared with the group meetings (src/meetings): one login, one connection
+  // The connection to the call server, shared with the group meetings and conference calls (src/meetings, src/conference): one login, one connection
   const [socketForMeetings, setSocketForMeetings] = useState(null);
-  // Set when a call has been turned into a group meeting (someone was added); the meetings code joins it
-  const [pendingMeetingId, setPendingMeetingId] = useState(null);
+  // Set when a call has been turned into a conference call (someone was added); the conference code joins it
+  const [pendingConferenceId, setPendingConferenceId] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [call, setCall] = useState(null); // {id, peer: {id, name}, video, direction, status, connectedAt, endText}
   const [history, setHistory] = useState([]); // newest first: {id, peer, video, direction, outcome, at, duration}
@@ -264,7 +264,7 @@ export function CallProvider({ children }) {
         ].slice(0, MAX_HISTORY),
       );
       if (quiet) {
-        // moving to a group meeting: no "call ended" screen, the meeting screen takes over
+        // moving to a conference call: no "call ended" screen, the conference screen takes over
         setCurrent(null);
         return;
       }
@@ -682,8 +682,9 @@ export function CallProvider({ children }) {
 
   const clearHistory = useCallback(() => setHistory([]), []);
 
-  // Add a third person to the call that is going on, by mobile number. The server turns the call into a group
-  // meeting and rings that number; both people on the call then get call:upgrade. Resolves to {ok} or {ok: false, error}.
+  // Add a third person to the call that is going on, by mobile number. The server turns the call into a conference
+  // call and rings that number; both people on the call then get call:upgrade. Resolves to {ok, conferenceId} or
+  // {ok: false, error}.
   const addPersonToCall = useCallback(
     raw =>
       new Promise(resolve => {
@@ -709,8 +710,8 @@ export function CallProvider({ children }) {
     [emit],
   );
 
-  const clearPendingMeetingId = useCallback(
-    () => setPendingMeetingId(null),
+  const clearPendingConferenceId = useCallback(
+    () => setPendingConferenceId(null),
     [],
   );
 
@@ -841,12 +842,12 @@ export function CallProvider({ children }) {
       }
     });
 
-    // Someone was added to this call: it became a group meeting. Leave the one-to-one call quietly (it is still
-    // logged) and let the meetings code join the meeting.
-    socket.on('call:upgrade', ({ callId, meetingId }) => {
+    // Someone was added to this call: it became a conference call. Leave the one-to-one call quietly (it is still
+    // logged) and let the conference code (src/conference) join the conference.
+    socket.on('call:upgrade', ({ callId, conferenceId }) => {
       if (callRef.current?.id === callId) {
         finish('answered', 'Moved to a group call', { quiet: true });
-        setPendingMeetingId(meetingId);
+        setPendingConferenceId(conferenceId);
       }
     });
 
@@ -900,8 +901,8 @@ export function CallProvider({ children }) {
       myId,
       serverConnected,
       socket: socketForMeetings,
-      pendingMeetingId,
-      clearPendingMeetingId,
+      pendingConferenceId,
+      clearPendingConferenceId,
       addPersonToCall,
       onlineUsers,
       call,
@@ -933,8 +934,8 @@ export function CallProvider({ children }) {
       myId,
       serverConnected,
       socketForMeetings,
-      pendingMeetingId,
-      clearPendingMeetingId,
+      pendingConferenceId,
+      clearPendingConferenceId,
       addPersonToCall,
       onlineUsers,
       call,

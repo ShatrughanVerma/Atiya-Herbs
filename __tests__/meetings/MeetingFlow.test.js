@@ -123,7 +123,6 @@ let screen;
 let socket;
 let engine;
 let me;
-let clearPending;
 
 function Probe() {
   api = useMeeting();
@@ -134,7 +133,6 @@ const render = async ({
   myId = 'asha',
   call = null,
   connected = true,
-  pendingMeetingId = null,
   replies = {},
 } = {}) => {
   socket = makeSocket();
@@ -142,13 +140,10 @@ const render = async ({
   socket.connected = connected;
   engine = makeEngine();
   me = myId;
-  clearPending = jest.fn();
   useCall.mockImplementation(() => ({
     socket,
     myId: me,
     call,
-    pendingMeetingId,
-    clearPendingMeetingId: clearPending,
   }));
   await ReactTestRenderer.act(async () => {
     screen = ReactTestRenderer.create(
@@ -1111,25 +1106,6 @@ test('you are told when someone you rang says no or does not answer', async () =
     }),
   );
   expect(api.notice).toBe('Ravi did not answer.'); // another meeting: ignored
-});
-
-test('when your call became a meeting, the app joins it by itself and clears the signal', async () => {
-  await render({
-    pendingMeetingId: ID,
-    replies: {
-      'meeting:join': {
-        ok: true,
-        meeting: snapshot([ASHA, BILAL]),
-        join: JOIN,
-        chat: [],
-        you: { id: 'asha', role: 'host' },
-      },
-    },
-  });
-  await act(() => flush());
-  expect(sent('meeting:join')[0].payload).toEqual({ id: ID });
-  expect(clearPending).toHaveBeenCalled();
-  expect(api.status).toBe('live');
 });
 
 test('numbers cannot be added when there is no meeting', async () => {

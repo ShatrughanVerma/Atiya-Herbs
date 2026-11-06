@@ -6,6 +6,7 @@ const {attachSignaling} = require('./signaling');
 const {createProviders} = require('./providers');
 const {createInvites} = require('./invites');
 const {createMeetings} = require('./meetings');
+const {createConferences} = require('./conferences');
 const {createRecordingStore} = require('./recordingStore');
 const {createEgressClient, createRecordingService} = require('./recording');
 const {createCloudinaryArchiver} = require('./cloudinaryArchive');
@@ -28,13 +29,18 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
     log,
   });
 
-  // meetings are made after signaling (they share its connection login), but signaling must know who is in one
-  const meetingHooks = {isInMeeting: () => false, startFromCall: () => ({ok: false, error: 'not-configured'})};
+  // meetings and conferences are made after signaling (they share its connection login), but signaling must know
+  // who is in one, and meetings and conferences must know who is in the other
+  const hooks = {
+    inMeeting: () => false,
+    inConference: () => false,
+    startConferenceFromCall: () => ({ok: false, error: 'not-configured'}),
+  };
   const state = attachSignaling(io, {
     tokens,
     recording,
-    isInMeeting: userId => meetingHooks.isInMeeting(userId),
-    startMeetingFromCall: details => meetingHooks.startFromCall(details),
+    isInMeeting: userId => hooks.inMeeting(userId) || hooks.inConference(userId),
+    startConferenceFromCall: details => hooks.startConferenceFromCall(details),
     ringTimeoutMs: Number(env.RING_TIMEOUT_MS) || 45000,
     reconnectGraceMs: Number(env.RECONNECT_GRACE_MS) || 15000,
     log,
@@ -45,7 +51,7 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
     io,
     agora: tokens.agora,
     store,
-    isInCall: userId => !!state.users.get(userId)?.callId,
+    isInCall: userId => !!state.users.get(userId)?.callId || hooks.inConference(userId),
     // who is connected right now (for ringing someone into a meeting)
     findUser: userId => {
       const u = state.users.get(userId);
@@ -55,9 +61,24 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
     log,
     now: overrides.now,
   });
-  meetingHooks.isInMeeting = meetings.isInMeeting;
-  meetingHooks.startFromCall = meetings.startFromCall;
+  hooks.inMeeting = meetings.isInMeeting;
   app.use(meetings.router);
+
+  // Conference calls: a one-to-one call that grows to many people (separate from meetings)
+  const conferences = createConferences({
+    io,
+    agora: tokens.agora,
+    isBusy: userId => !!state.users.get(userId)?.callId || hooks.inMeeting(userId),
+    findUser: userId => {
+      const u = state.users.get(userId);
+      return u?.socketId ? {name: u.name, socketId: u.socketId} : null;
+    },
+    env,
+    log,
+    now: overrides.now,
+  });
+  hooks.inConference = conferences.isInConference;
+  hooks.startConferenceFromCall = conferences.startFromCall;
 
   // Call links that work in a browser without the app (Agora, independent of the app's own calling)
   const invites = createInvites({env, agora: tokens.agora, now: overrides.now});
@@ -79,11 +100,12 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
       recordingDetailsStore: store.kind,
       online: [...state.users.values()].filter(u => u.socketId).length,
       meetings: meetings.liveCount(),
+      conferences: conferences.liveCount(),
       calls: state.calls.size,
     });
   });
 
-  return {app, server, io, state, tokens, store, recording, meetings};
+  return {app, server, io, state, tokens, store, recording, meetings, conferences};
 }
 
 const lanAddresses = () =>

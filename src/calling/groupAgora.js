@@ -7,8 +7,8 @@ import {
   createAgoraRtcEngine,
 } from 'react-native-agora';
 
-// One group meeting on Agora: many people in ONE channel. This only talks to Agora and reports what happened through
-// `handlers`; MeetingContext decides what to show. (The one-to-one calls in src/calling/agoraCall.js are separate.)
+// One group room on Agora (a meeting or a conference call): many people in ONE channel. This only talks to Agora and reports what happened through
+// `handlers`; MeetingContext / ConferenceContext decide what to show. (The one-to-one calls in src/calling/agoraCall.js are separate.)
 //
 // The server makes the token for a user account (the person's own id), so the join uses joinChannelWithUserAccount.
 // Agora gives each remote person a numeric uid; `accountOf(uid)` says which person that is (the id the server knows).
@@ -26,7 +26,7 @@ const SCREEN = {
   bitrate: 0,
 };
 
-export async function joinMeetingChannel({
+export async function joinGroupChannel({
   appId,
   channel,
   account,
