@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -18,7 +19,7 @@ import { formatMobile, normalizeMobile } from '../calling/phone';
 import { ADD_PERSON_ERRORS } from './MeetingContext';
 
 // A card over the call or meeting screen to add someone by mobile number (typed, or picked from the phone's
-// contacts). It is a plain view, not a Modal, so it can sit inside the call screen's own Modal.
+// contacts). It is a Modal of its own, so it is always drawn above the call screen.
 // `onAdd(number)` resolves to {ok} or {ok: false, error}; on success the card closes itself.
 
 export default function AddPersonCard({ title, note, onAdd, onClose }) {
@@ -63,92 +64,108 @@ export default function AddPersonCard({ title, note, onAdd, onClose }) {
     }
   };
 
+  // Its own Modal, so it is drawn above the call's video and controls whatever they are doing
   return (
-    <View style={styles.backdrop}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.center}
-      >
-        <View style={styles.card} accessibilityViewIsModal>
-          <Text style={styles.title}>{title}</Text>
-          {!!note && <Text style={styles.note}>{note}</Text>}
-          <View style={styles.inputRow}>
-            <Text style={styles.prefix}>+91</Text>
-            <TextInput
-              style={styles.input}
-              value={number}
-              onChangeText={text => {
-                setNumber(text);
-                setPicked(null);
-                setError('');
-              }}
-              placeholder="Mobile number"
-              placeholderTextColor="rgba(255,255,255,0.5)"
-              keyboardType="phone-pad"
-              maxLength={16}
-              autoFocus
-              onSubmitEditing={submit}
-              accessibilityLabel="Mobile number to add"
-            />
-            {isContactPickerAvailable && (
-              <Pressable
-                onPress={pick}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel="Pick from contacts"
-              >
-                <Icon name="account-box-outline" size={28} color="#fff" />
-              </Pressable>
-            )}
-          </View>
-          {!!normalizeMobile(number) && (
-            <Text style={styles.preview}>
-              {picked !== null
-                ? `Selected${picked ? ` ${picked}` : ''}: ${formatMobile(number)}`
-                : formatMobile(number)}
-            </Text>
-          )}
-          {!!error && (
-            <Text style={styles.error} accessibilityRole="alert">
-              {error}
-            </Text>
-          )}
-          <View style={styles.buttons}>
-            <Pressable
-              style={[styles.btn, styles.cancel]}
-              onPress={onClose}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel adding"
-            >
-              <Text style={styles.btnText}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.btn, styles.add, busy && styles.busy]}
-              onPress={submit}
-              disabled={busy}
-              accessibilityRole="button"
-              accessibilityLabel="Add this number"
-            >
-              {busy ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.btnText}>Add</Text>
+    <Modal
+      transparent
+      visible
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={styles.backdrop}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.center}
+        >
+          <View style={styles.card} accessibilityViewIsModal>
+            <Text style={styles.title}>{title}</Text>
+            {!!note && <Text style={styles.note}>{note}</Text>}
+            <View style={styles.inputRow}>
+              <Text style={styles.prefix}>+91</Text>
+              <TextInput
+                style={styles.input}
+                value={number}
+                onChangeText={text => {
+                  setNumber(text);
+                  setPicked(null);
+                  setError('');
+                }}
+                placeholder="Mobile number"
+                placeholderTextColor="rgba(255,255,255,0.5)"
+                keyboardType="phone-pad"
+                maxLength={16}
+                autoFocus
+                onSubmitEditing={submit}
+                accessibilityLabel="Mobile number to add"
+              />
+              {isContactPickerAvailable && (
+                <Pressable
+                  onPress={pick}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Pick from contacts"
+                >
+                  <Icon name="account-box-outline" size={28} color="#fff" />
+                </Pressable>
               )}
-            </Pressable>
+            </View>
+            {!!normalizeMobile(number) && (
+              <Text style={styles.preview}>
+                {picked !== null
+                  ? `Selected${picked ? ` ${picked}` : ''}: ${formatMobile(
+                      number,
+                    )}`
+                  : formatMobile(number)}
+              </Text>
+            )}
+            {!!error && (
+              <Text style={styles.error} accessibilityRole="alert">
+                {error}
+              </Text>
+            )}
+            <View style={styles.buttons}>
+              <Pressable
+                style={[styles.btn, styles.cancel]}
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel adding"
+              >
+                <Text style={styles.btnText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.btn, styles.add, busy && styles.busy]}
+                onPress={submit}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel="Add this number"
+              >
+                {busy ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.btnText}>Add</Text>
+                )}
+              </Pressable>
+            </View>
           </View>
-        </View>
-      </KeyboardAvoidingView>
-    </View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
-    zIndex: 20,
   },
-  center: { flex: 1, justifyContent: 'center', paddingHorizontal: 20 },
+  // Near the top, not the middle: the keyboard opens at once and would cover a centred card
+  center: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    paddingTop: 72,
+    paddingHorizontal: 20,
+  },
   card: {
     backgroundColor: '#1F2C34',
     borderRadius: 20,

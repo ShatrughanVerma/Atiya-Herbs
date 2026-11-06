@@ -5,10 +5,26 @@ export const MAX_TILES = 9; // more than this and a phone cannot show them usefu
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 
 // The grid for `count` tiles in a `width` x `height` area (the area under the top bar and above the buttons).
-// Few people get big tiles; on a tall screen they stack, on a wide one they sit side by side.
+// Few people get big tiles; on a tall screen two people stack, on a wide one they sit side by side. With three or
+// more people on a tall screen one person fills the stage and everybody else sits in a row under it that you swipe
+// along (`horizontal: true`, with `stageWidth`/`stageHeight` for the big tile and `tileWidth`/`tileHeight` for the row).
 export function gridMetrics({ width, height, count, gap = 8 }) {
   const n = Math.max(1, Math.min(count, MAX_TILES));
   const landscape = width > height;
+  if (n >= 3 && !landscape) {
+    const tileHeight = clamp(Math.round(height * 0.24), 90, 170);
+    return {
+      horizontal: true,
+      columns: n - 1,
+      rows: 1,
+      count: n,
+      stageWidth: width,
+      stageHeight: Math.max(60, height - tileHeight - gap),
+      tileWidth: Math.round(tileHeight * 0.75),
+      tileHeight,
+      gap,
+    };
+  }
   let columns;
   if (n === 1) {
     columns = 1;
@@ -28,6 +44,7 @@ export function gridMetrics({ width, height, count, gap = 8 }) {
   const tileWidth = Math.floor((width - gap * (columns - 1)) / columns);
   const tileHeight = Math.floor((height - gap * (rows - 1)) / rows);
   return {
+    horizontal: false,
     columns,
     rows,
     count: n,
@@ -35,6 +52,19 @@ export function gridMetrics({ width, height, count, gap = 8 }) {
     tileHeight: clamp(tileHeight, 60, height),
     gap,
   };
+}
+
+// Who is on the stage when the meeting is shown as one big tile with a row under it: the person you tapped, else the
+// one sharing their screen, else whoever is talking, else the first other person, else you.
+export function pickStage(people, { pinnedId, sharingId, speakingId }) {
+  const byId = id => people.find(p => p.id === id);
+  return (
+    byId(pinnedId) ||
+    byId(sharingId) ||
+    people.find(p => p.id === speakingId && !p.isMe) ||
+    people.find(p => !p.isMe) ||
+    people[0]
+  );
 }
 
 // Who gets a tile when there are more people than tiles: the person sharing first, then you, then whoever is

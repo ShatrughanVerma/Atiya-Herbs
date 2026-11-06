@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Dimensions,
   FlatList,
-  KeyboardAvoidingView,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   Share,
   StatusBar,
   StyleSheet,
@@ -16,6 +18,7 @@ import {
   View,
 } from 'react-native';
 import {
+  SafeAreaProvider,
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
@@ -31,6 +34,7 @@ import {
   gridMetrics,
   meetingLink,
   orderTiles,
+  pickStage,
 } from './meetingLayout';
 
 // The meeting screen, shown above every screen while you are in a meeting (like the call screen): a grid of
@@ -301,8 +305,28 @@ function PeoplePanel({ onClose, onLeaveOrEnd, onAddPerson }) {
   );
 }
 
+// How far the keyboard covers the bottom of the screen. Inside a full-screen Modal the window does not shrink
+// when the keyboard opens, so a panel with a text box has to lift itself.
+function useKeyboardLift() {
+  const insets = useSafeAreaInsets();
+  const [lift, setLift] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', e => {
+      const bottomOfScreen = Dimensions.get('screen').height - insets.bottom;
+      setLift(Math.max(0, bottomOfScreen - e.endCoordinates.screenY));
+    });
+    const hide = Keyboard.addListener('keyboardDidHide', () => setLift(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [insets.bottom]);
+  return lift;
+}
+
 function ChatPanel({ onClose }) {
   const { chat, sendChat, setChatOpen } = useMeeting();
+  const lift = useKeyboardLift();
   const [text, setText] = useState('');
   const list = useRef(null);
   useEffect(() => {
@@ -324,10 +348,7 @@ function ChatPanel({ onClose }) {
   };
   const { myId } = useMeetingIdentity();
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={styles.sheet}
-    >
+    <View style={[styles.sheet, { bottom: lift }]}>
       <View style={styles.sheetHead}>
         <Text style={styles.sheetTitle}>Chat</Text>
         <Pressable onPress={onClose} accessibilityLabel="Close chat">
@@ -374,7 +395,7 @@ function ChatPanel({ onClose }) {
           <Icon name="send" size={22} color="#fff" />
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -412,6 +433,7 @@ export default function MeetingRoom() {
   const insets = useSafeAreaInsets();
   const [panel, setPanel] = useState(null); // null | 'people' | 'chat'
   const [adding, setAdding] = useState(false); // the "add someone by number" card
+  const [pinnedId, setPinnedId] = useState(null); // the person you tapped to have on the big tile
   const [area, setArea] = useState({
     width: window.width,
     height: window.height - 220,
@@ -436,6 +458,11 @@ export default function MeetingRoom() {
     height: area.height,
     count: slots,
   });
+  // three or more people on a tall screen: one big tile with a row under it you swipe sideways
+  const stage = grid.horizontal
+    ? pickStage(tiles, { pinnedId, sharingId: meeting?.sharingId, speakingId })
+    : null;
+  const strip = stage ? tiles.filter(p => p.id !== stage.id) : [];
 
   // only the people on screen have their video downloaded
   const shownKey = tiles.map(p => p.id).join(',');
@@ -499,156 +526,213 @@ export default function MeetingRoom() {
       onRequestClose={confirmLeave}
     >
       <StatusBar barStyle="light-content" backgroundColor={BG} />
-      <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
-        <View style={styles.topBar}>
-          <View style={styles.topInfo}>
-            <Text
-              style={styles.title}
-              numberOfLines={1}
-              maxFontSizeMultiplier={1.2}
+      {/* Inside a Modal the safe-area insets are not passed down, so the bottom buttons and chat box sit under the nav bar */}
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: window.width, height: window.height },
+          insets: { top: 0, left: 0, right: 0, bottom: 0, ...insets },
+        }}
+      >
+        <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
+          <View style={styles.topBar}>
+            <View style={styles.topInfo}>
+              <Text
+                style={styles.title}
+                numberOfLines={1}
+                maxFontSizeMultiplier={1.2}
+              >
+                {meeting.title}
+              </Text>
+              <Text style={styles.subtitle} maxFontSizeMultiplier={1.2}>
+                {meeting.id} · {timer} · {people.length} in meeting
+                {meeting.locked ? ' · locked' : ''}
+              </Text>
+            </View>
+            <Pressable
+              onPress={shareInvite}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Share meeting invite"
             >
-              {meeting.title}
-            </Text>
-            <Text style={styles.subtitle} maxFontSizeMultiplier={1.2}>
-              {meeting.id} · {timer} · {people.length} in meeting
-              {meeting.locked ? ' · locked' : ''}
-            </Text>
+              <Icon name="share-variant" size={24} color="#fff" />
+            </Pressable>
           </View>
-          <Pressable
-            onPress={shareInvite}
-            hitSlop={10}
-            accessibilityRole="button"
-            accessibilityLabel="Share meeting invite"
+
+          {(connection === 'reconnecting' || notice || sharer) && (
+            <View style={styles.banner}>
+              <Text style={styles.bannerText}>
+                {connection === 'reconnecting'
+                  ? 'Reconnecting…'
+                  : notice ||
+                    `${
+                      sharer.isMe ? 'You are' : `${sharer.name} is`
+                    } sharing their screen`}
+              </Text>
+            </View>
+          )}
+
+          <View
+            style={styles.gridArea}
+            onLayout={e =>
+              setArea({
+                width: e.nativeEvent.layout.width,
+                height: e.nativeEvent.layout.height,
+              })
+            }
           >
-            <Icon name="share-variant" size={24} color="#fff" />
-          </Pressable>
-        </View>
-
-        {(connection === 'reconnecting' || notice || sharer) && (
-          <View style={styles.banner}>
-            <Text style={styles.bannerText}>
-              {connection === 'reconnecting'
-                ? 'Reconnecting…'
-                : notice ||
-                  `${
-                    sharer.isMe ? 'You are' : `${sharer.name} is`
-                  } sharing their screen`}
-            </Text>
-          </View>
-        )}
-
-        <View
-          style={styles.gridArea}
-          onLayout={e =>
-            setArea({
-              width: e.nativeEvent.layout.width,
-              height: e.nativeEvent.layout.height,
-            })
-          }
-        >
-          <View style={[styles.grid, { gap: grid.gap }]}>
-            {tiles.map(p => (
-              <Tile
-                key={p.id}
-                person={p}
-                width={grid.tileWidth}
-                height={grid.tileHeight}
-                frontCamera={frontCamera}
-                sharing={sharing}
-                onStopSharing={toggleScreenShare}
-              />
-            ))}
-            {extra > 0 && (
-              <MoreTile
-                count={extra + 1}
-                width={grid.tileWidth}
-                height={grid.tileHeight}
-                onPress={() => setPanel('people')}
-              />
+            {grid.horizontal ? (
+              <View style={{ gap: grid.gap }}>
+                <Pressable
+                  onPress={() => setPinnedId(null)}
+                  accessibilityLabel="Main speaker"
+                >
+                  <Tile
+                    person={stage}
+                    width={grid.stageWidth}
+                    height={grid.stageHeight}
+                    frontCamera={frontCamera}
+                    sharing={sharing}
+                    onStopSharing={toggleScreenShare}
+                  />
+                </Pressable>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: grid.gap }}
+                  accessibilityLabel="Everyone else in the meeting"
+                >
+                  {strip.map(p => (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => setPinnedId(p.id)}
+                      accessibilityLabel={`Show ${p.name} on the big screen`}
+                    >
+                      <Tile
+                        person={p}
+                        width={grid.tileWidth}
+                        height={grid.tileHeight}
+                        frontCamera={frontCamera}
+                        sharing={sharing}
+                        onStopSharing={toggleScreenShare}
+                      />
+                    </Pressable>
+                  ))}
+                  {extra > 0 && (
+                    <MoreTile
+                      count={extra + 1}
+                      width={grid.tileWidth}
+                      height={grid.tileHeight}
+                      onPress={() => setPanel('people')}
+                    />
+                  )}
+                </ScrollView>
+              </View>
+            ) : (
+              <View style={[styles.grid, { gap: grid.gap }]}>
+                {tiles.map(p => (
+                  <Tile
+                    key={p.id}
+                    person={p}
+                    width={grid.tileWidth}
+                    height={grid.tileHeight}
+                    frontCamera={frontCamera}
+                    sharing={sharing}
+                    onStopSharing={toggleScreenShare}
+                  />
+                ))}
+                {extra > 0 && (
+                  <MoreTile
+                    count={extra + 1}
+                    width={grid.tileWidth}
+                    height={grid.tileHeight}
+                    onPress={() => setPanel('people')}
+                  />
+                )}
+              </View>
             )}
           </View>
-        </View>
 
-        <View style={styles.controls}>
-          <RoundButton
-            icon={muted ? 'microphone-off' : 'microphone'}
-            label={muted ? 'Unmute' : 'Mute'}
-            active={muted}
-            size={m.actionSize}
-            onPress={toggleMute}
-          />
-          <RoundButton
-            icon={cameraOn ? 'video' : 'video-off'}
-            label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
-            active={cameraOn}
-            size={m.actionSize}
-            onPress={toggleCamera}
-          />
-          {cameraOn && (
+          <View style={styles.controls}>
             <RoundButton
-              icon="camera-flip-outline"
-              label="Switch camera"
+              icon={muted ? 'microphone-off' : 'microphone'}
+              label={muted ? 'Unmute' : 'Mute'}
+              active={muted}
               size={m.actionSize}
-              onPress={flipCamera}
+              onPress={toggleMute}
+            />
+            <RoundButton
+              icon={cameraOn ? 'video' : 'video-off'}
+              label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+              active={cameraOn}
+              size={m.actionSize}
+              onPress={toggleCamera}
+            />
+            {cameraOn && (
+              <RoundButton
+                icon="camera-flip-outline"
+                label="Switch camera"
+                size={m.actionSize}
+                onPress={flipCamera}
+              />
+            )}
+            <RoundButton
+              icon={speakerOn ? 'volume-high' : 'phone-in-talk'}
+              label={speakerOn ? 'Use earpiece' : 'Use speaker'}
+              active={speakerOn}
+              size={m.actionSize}
+              onPress={toggleSpeaker}
+            />
+            {Platform.OS === 'android' && (
+              <RoundButton
+                icon="monitor-share"
+                label={sharing ? 'Stop sharing' : 'Share screen'}
+                active={sharing}
+                size={m.actionSize}
+                onPress={toggleScreenShare}
+              />
+            )}
+            <RoundButton
+              icon="account-group"
+              label="People"
+              active={panel === 'people'}
+              size={m.actionSize}
+              onPress={() => setPanel(panel === 'people' ? null : 'people')}
+            />
+            <RoundButton
+              icon="message-text"
+              label="Chat"
+              active={panel === 'chat'}
+              badge={panel === 'chat' ? 0 : unread}
+              size={m.actionSize}
+              onPress={() => setPanel(panel === 'chat' ? null : 'chat')}
+            />
+            <RoundButton
+              icon="phone-hangup"
+              label="Leave meeting"
+              danger
+              size={m.actionSize}
+              onPress={confirmLeave}
+            />
+          </View>
+
+          {panel === 'people' && (
+            <PeoplePanel
+              onClose={() => setPanel(null)}
+              onLeaveOrEnd={confirmLeave}
+              onAddPerson={() => setAdding(true)}
             />
           )}
-          <RoundButton
-            icon={speakerOn ? 'volume-high' : 'phone-in-talk'}
-            label={speakerOn ? 'Use earpiece' : 'Use speaker'}
-            active={speakerOn}
-            size={m.actionSize}
-            onPress={toggleSpeaker}
-          />
-          {Platform.OS === 'android' && (
-            <RoundButton
-              icon="monitor-share"
-              label={sharing ? 'Stop sharing' : 'Share screen'}
-              active={sharing}
-              size={m.actionSize}
-              onPress={toggleScreenShare}
+          {panel === 'chat' && <ChatPanel onClose={() => setPanel(null)} />}
+          {adding && (
+            <AddPersonCard
+              title="Add people to this meeting"
+              note="Their phone rings, and they join when they accept."
+              onAdd={inviteByNumber}
+              onClose={() => setAdding(false)}
             />
           )}
-          <RoundButton
-            icon="account-group"
-            label="People"
-            active={panel === 'people'}
-            size={m.actionSize}
-            onPress={() => setPanel(panel === 'people' ? null : 'people')}
-          />
-          <RoundButton
-            icon="message-text"
-            label="Chat"
-            active={panel === 'chat'}
-            badge={panel === 'chat' ? 0 : unread}
-            size={m.actionSize}
-            onPress={() => setPanel(panel === 'chat' ? null : 'chat')}
-          />
-          <RoundButton
-            icon="phone-hangup"
-            label="Leave meeting"
-            danger
-            size={m.actionSize}
-            onPress={confirmLeave}
-          />
-        </View>
-
-        {panel === 'people' && (
-          <PeoplePanel
-            onClose={() => setPanel(null)}
-            onLeaveOrEnd={confirmLeave}
-            onAddPerson={() => setAdding(true)}
-          />
-        )}
-        {panel === 'chat' && <ChatPanel onClose={() => setPanel(null)} />}
-        {adding && (
-          <AddPersonCard
-            title="Add people to this meeting"
-            note="Their phone rings, and they join when they accept."
-            onAdd={inviteByNumber}
-            onClose={() => setAdding(false)}
-          />
-        )}
-      </SafeAreaView>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

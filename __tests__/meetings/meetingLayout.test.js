@@ -4,6 +4,7 @@ import {
   gridMetrics,
   meetingLink,
   orderTiles,
+  pickStage,
   parseMeetingLink,
 } from '../../src/meetings/meetingLayout';
 
@@ -17,20 +18,36 @@ describe('gridMetrics', () => {
     for (let count = 1; count <= 20; count++) {
       const g = gridMetrics({ width, height, count });
       expect(g.count).toBeLessThanOrEqual(MAX_TILES);
-      expect(g.tileWidth * g.columns + g.gap * (g.columns - 1)).toBeLessThanOrEqual(width);
+      if (!g.horizontal) {
+        expect(g.tileWidth * g.columns + g.gap * (g.columns - 1)).toBeLessThanOrEqual(width);
+      }
       expect(g.tileHeight * g.rows + g.gap * (g.rows - 1)).toBeLessThanOrEqual(height);
-      expect(g.columns * g.rows).toBeGreaterThanOrEqual(g.count);
+      if (!g.horizontal) {
+        expect(g.columns * g.rows).toBeGreaterThanOrEqual(g.count);
+      }
       expect(g.tileWidth).toBeGreaterThanOrEqual(60);
     }
   });
 
   test('few people get big tiles, and the grid grows with the number of people', () => {
-    const cols = n => gridMetrics({ width: 390, height: 600, count: n }).columns;
-    expect([cols(1), cols(2), cols(3), cols(4), cols(6), cols(9)]).toEqual([1, 1, 2, 2, 2, 3]);
-    const one = gridMetrics({ width: 390, height: 600, count: 1 });
-    const nine = gridMetrics({ width: 390, height: 600, count: 9 });
+    const cols = n => gridMetrics({ width: 800, height: 360, count: n }).columns;
+    expect([cols(1), cols(2), cols(3), cols(4), cols(6), cols(9)]).toEqual([1, 2, 2, 2, 3, 4]);
+    const one = gridMetrics({ width: 800, height: 360, count: 1 });
+    const nine = gridMetrics({ width: 800, height: 360, count: 9 });
     expect(one.tileWidth).toBeGreaterThan(nine.tileWidth);
     expect(one.tileHeight).toBeGreaterThan(nine.tileHeight);
+  });
+
+  test('three or more people on a tall screen: one big tile with a row of small ones under it', () => {
+    for (const count of [3, 4, 9, 20]) {
+      const g = gridMetrics({ width: 390, height: 600, count });
+      expect(g).toMatchObject({ horizontal: true, rows: 1, stageWidth: 390 });
+      expect(g.stageHeight + g.gap + g.tileHeight).toBeLessThanOrEqual(600);
+      expect(g.stageHeight).toBeGreaterThan(g.tileHeight * 2); // the stage is the main thing
+      expect(g.tileWidth).toBeLessThan(390 / 2);
+    }
+    expect(gridMetrics({ width: 390, height: 600, count: 2 }).horizontal).toBe(false);
+    expect(gridMetrics({ width: 800, height: 360, count: 4 }).horizontal).toBe(false);
   });
 
   test('two people stack on a tall screen and sit side by side on a wide one', () => {
@@ -41,6 +58,21 @@ describe('gridMetrics', () => {
   test('more than the most that fit are not drawn', () => {
     expect(gridMetrics({ width: 390, height: 600, count: 25 }).count).toBe(MAX_TILES);
     expect(gridMetrics({ width: 390, height: 600, count: 0 }).count).toBe(1);
+  });
+});
+
+describe('pickStage', () => {
+  const people = [{ id: 'me', isMe: true }, { id: 'a' }, { id: 'b' }];
+  test('a tapped person wins, then the one sharing, then whoever talks, then the first other person', () => {
+    expect(pickStage(people, { pinnedId: 'b', sharingId: 'a', speakingId: 'a' }).id).toBe('b');
+    expect(pickStage(people, { sharingId: 'b', speakingId: 'a' }).id).toBe('b');
+    expect(pickStage(people, { speakingId: 'b' }).id).toBe('b');
+    expect(pickStage(people, { speakingId: 'me' }).id).toBe('a'); // not you, unless you are alone
+    expect(pickStage(people, {}).id).toBe('a');
+    expect(pickStage([people[0]], {}).id).toBe('me');
+  });
+  test('a person who has left is not kept on the stage', () => {
+    expect(pickStage(people, { pinnedId: 'gone' }).id).toBe('a');
   });
 });
 

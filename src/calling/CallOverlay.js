@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import {
+  SafeAreaProvider,
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
@@ -268,275 +269,291 @@ export default function CallOverlay() {
       onRequestClose={() => !incoming && !ended && endCall()}
     >
       <StatusBar barStyle="light-content" backgroundColor={BG} />
-      <View style={styles.screen}>
-        {bigVideo && (
-          <CallVideo
-            trackRef={bigVideo}
-            style={styles.fill}
-            mirror={bigVideo === localVideo && frontCamera}
-          />
-        )}
-        <SafeAreaView style={styles.content} edges={['top', 'bottom']}>
-          <View style={styles.topBar}>
-            {!incoming && !ended ? (
-              <Pressable
-                style={styles.topBtn}
-                onPress={() => setMinimized(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Minimize call"
-              >
-                <Icon name="arrow-collapse" size={22} color="#fff" />
-              </Pressable>
-            ) : (
-              <View style={styles.topBtn} />
-            )}
-            {recording === 'on' && !ended ? (
-              <View
-                style={styles.recordingBadge}
-                accessibilityLabel="Recording"
-              >
-                <View style={styles.recordingDot} />
-                <Text style={styles.recordingText}>Recording</Text>
-              </View>
-            ) : (
-              <View style={styles.encrypted}>
-                <Text style={styles.encryptedText}>Atiya Herbs call</Text>
-              </View>
-            )}
-            {canAdd && !ended ? (
-              <Pressable
-                style={styles.topBtn}
-                onPress={() => setAddOpen(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Add person"
-              >
-                <Icon name="account-plus" size={22} color="#fff" />
-              </Pressable>
-            ) : (
-              <View style={styles.topBtn} />
-            )}
-          </View>
-
-          <View style={[styles.header, { paddingTop: m.headerTop }]}>
-            <Text
-              style={[styles.name, { fontSize: m.nameSize }]}
-              numberOfLines={1}
-              maxFontSizeMultiplier={1.2}
-            >
-              {call.peer.name}
-            </Text>
-            {number !== call.peer.name && (
-              <Text style={styles.number} maxFontSizeMultiplier={1.2}>
-                {number}
-              </Text>
-            )}
-            <Text style={styles.status} maxFontSizeMultiplier={1.2}>
-              {statusText(call, duration)}
-            </Text>
-            {!ended && peerState.length > 0 && (
-              <View style={styles.peerState}>
-                <Icon
-                  name={peerMedia.muted ? 'microphone-off' : 'video-off'}
-                  size={14}
-                  color="#fff"
-                />
-                <Text style={styles.peerStateText}>
-                  {peerState.join(' · ')}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {slow && waiting && !ended && (
-            <View style={styles.slowBanner}>
-              <Text style={styles.slowText} maxFontSizeMultiplier={1.2}>
-                Still trying to reach {call.peer.name}
-              </Text>
-            </View>
+      {/* Inside a Modal the safe-area insets are not passed down, so the controls would sit under the nav bar */}
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: window.width, height: window.height },
+          insets: { top: 0, left: 0, right: 0, bottom: 0, ...insets },
+        }}
+      >
+        <View style={styles.screen}>
+          {bigVideo && (
+            <CallVideo
+              trackRef={bigVideo}
+              style={StyleSheet.absoluteFill}
+              mirror={bigVideo === localVideo && frontCamera}
+            />
           )}
-
-          <View style={styles.middle}>
-            {bigVideo ? null : <Avatar name={call.peer.name} size={m.avatar} />}
-          </View>
-
-          {/* The other person asks to record: nothing is recorded unless we allow it */}
-          {recordingRequest && !ended && (
-            <View style={[styles.consent, { width: m.contentWidth - 32 }]}>
-              <Text style={styles.consentTitle} maxFontSizeMultiplier={1.2}>
-                {recordingRequest.from.name} wants to record this call
-              </Text>
-              <Text style={styles.consentNote}>
-                The recording is saved privately. You can stop it at any time.
-              </Text>
-              <View style={styles.consentButtons}>
+          <SafeAreaView style={styles.content} edges={['top', 'bottom']}>
+            <View style={styles.topBar}>
+              {!incoming && !ended ? (
                 <Pressable
-                  style={[styles.consentBtn, styles.consentDecline]}
-                  onPress={() => respondRecording(false)}
+                  style={styles.topBtn}
+                  onPress={() => setMinimized(true)}
                   accessibilityRole="button"
-                  accessibilityLabel="Do not allow recording"
+                  accessibilityLabel="Minimize call"
                 >
-                  <Text style={styles.consentBtnText}>Not now</Text>
+                  <Icon name="arrow-collapse" size={22} color="#fff" />
                 </Pressable>
-                <Pressable
-                  style={[styles.consentBtn, styles.consentAllow]}
-                  onPress={() => respondRecording(true)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Allow recording"
-                >
-                  <Text style={styles.consentBtnText}>Allow</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
-
-          {incoming ? (
-            <View
-              style={[styles.incomingRow, { paddingBottom: m.incomingBottom }]}
-            >
-              <BigButton
-                icon="phone-hangup"
-                label="Decline"
-                color={RED}
-                size={m.bigSize}
-                onPress={rejectCall}
-              />
-              <BigButton
-                icon={call.video ? 'video' : 'phone'}
-                label="Accept"
-                color={GREEN}
-                size={m.bigSize}
-                onPress={acceptCall}
-              />
-            </View>
-          ) : (
-            <View style={[styles.panel, { paddingBottom: m.panelBottom }]}>
-              <View style={styles.handle} />
-              {ended ? (
-                <Text style={styles.endedText} maxFontSizeMultiplier={1.2}>
-                  {call.endText}
-                </Text>
               ) : (
+                <View style={styles.topBtn} />
+              )}
+              {recording === 'on' && !ended ? (
                 <View
-                  style={[styles.actionsRow, { width: m.contentWidth - 40 }]}
+                  style={styles.recordingBadge}
+                  accessibilityLabel="Recording"
                 >
-                  <Action
-                    icon="volume-high"
-                    label="Speaker"
-                    text="Speaker"
-                    size={btn}
-                    cell={cell}
-                    active={speakerOn}
-                    onPress={toggleSpeaker}
+                  <View style={styles.recordingDot} />
+                  <Text style={styles.recordingText}>Recording</Text>
+                </View>
+              ) : (
+                <View style={styles.encrypted}>
+                  <Text style={styles.encryptedText}>Atiya Herbs call</Text>
+                </View>
+              )}
+              {canAdd && !ended ? (
+                <Pressable
+                  style={styles.topBtn}
+                  onPress={() => setAddOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add person"
+                >
+                  <Icon name="account-plus" size={22} color="#fff" />
+                </Pressable>
+              ) : (
+                <View style={styles.topBtn} />
+              )}
+            </View>
+
+            <View style={[styles.header, { paddingTop: m.headerTop }]}>
+              <Text
+                style={[styles.name, { fontSize: m.nameSize }]}
+                numberOfLines={1}
+                maxFontSizeMultiplier={1.2}
+              >
+                {call.peer.name}
+              </Text>
+              {number !== call.peer.name && (
+                <Text style={styles.number} maxFontSizeMultiplier={1.2}>
+                  {number}
+                </Text>
+              )}
+              <Text style={styles.status} maxFontSizeMultiplier={1.2}>
+                {statusText(call, duration)}
+              </Text>
+              {!ended && peerState.length > 0 && (
+                <View style={styles.peerState}>
+                  <Icon
+                    name={peerMedia.muted ? 'microphone-off' : 'video-off'}
+                    size={14}
+                    color="#fff"
                   />
-                  <Action
-                    icon={cameraOn ? 'video' : 'video-off'}
-                    label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
-                    text="Video"
-                    size={btn}
-                    cell={cell}
-                    active={cameraOn}
-                    onPress={toggleCamera}
-                  />
-                  <Action
-                    icon={muted ? 'microphone-off' : 'microphone'}
-                    label={muted ? 'Unmute' : 'Mute'}
-                    text={muted ? 'Unmute' : 'Mute'}
-                    size={btn}
-                    cell={cell}
-                    active={muted}
-                    onPress={toggleMute}
-                  />
-                  {localVideo && (
-                    <Action
-                      icon="camera-flip-outline"
-                      label="Switch camera"
-                      text="Flip"
-                      size={btn}
-                      cell={cell}
-                      onPress={flipCamera}
-                    />
-                  )}
-                  {showRecord && (
-                    <Action
-                      size={btn}
-                      cell={cell}
-                      icon={
-                        recording === 'on'
-                          ? 'record-circle'
-                          : 'record-circle-outline'
-                      }
-                      label={
-                        recording === 'on'
-                          ? 'Stop recording'
-                          : recording === 'asking'
-                          ? 'Waiting for them to allow recording'
-                          : 'Record call'
-                      }
-                      text={recording === 'on' ? 'Stop' : 'Record'}
-                      active={recording === 'on'}
-                      onPress={
-                        recording === 'on'
-                          ? stopRecording
-                          : recording === 'asking'
-                          ? undefined
-                          : requestRecording
-                      }
-                    />
-                  )}
-                  <View style={[styles.action, { width: cell }]}>
-                    <Pressable
-                      onPress={endCall}
-                      style={[
-                        styles.endBtn,
-                        { width: btn, height: btn, borderRadius: btn / 2 },
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel="End call"
-                    >
-                      <Icon
-                        name="phone-hangup"
-                        size={Math.round(btn * 0.46)}
-                        color="#fff"
-                      />
-                    </Pressable>
-                    <Text style={styles.actionLabel} maxFontSizeMultiplier={1.2}>
-                      End
-                    </Text>
-                  </View>
+                  <Text style={styles.peerStateText}>
+                    {peerState.join(' · ')}
+                  </Text>
                 </View>
               )}
             </View>
-          )}
-        </SafeAreaView>
-        {addOpen && canAdd && !ended && (
-          <AddPersonCard
-            title="Add someone to this call"
-            note="Their phone rings. This call becomes a group call."
-            onAdd={addPersonToCall}
-            onClose={() => setAddOpen(false)}
-          />
-        )}
-        {smallVideo && (
-          <View
-            style={[
-              styles.selfView,
-              {
-                top: m.selfTop,
-                right: m.selfRight,
-                width: m.selfWidth,
-                height: m.selfHeight,
-              },
-            ]}
-          >
-            <CallVideo
-              trackRef={localVideo}
-              style={styles.fill}
-              mirror={frontCamera}
-              zOrder={1}
+
+            {slow && waiting && !ended && (
+              <View style={styles.slowBanner}>
+                <Text style={styles.slowText} maxFontSizeMultiplier={1.2}>
+                  Still trying to reach {call.peer.name}
+                </Text>
+              </View>
+            )}
+
+            <View style={styles.middle}>
+              {bigVideo ? null : (
+                <Avatar name={call.peer.name} size={m.avatar} />
+              )}
+            </View>
+
+            {/* The other person asks to record: nothing is recorded unless we allow it */}
+            {recordingRequest && !ended && (
+              <View style={[styles.consent, { width: m.contentWidth - 32 }]}>
+                <Text style={styles.consentTitle} maxFontSizeMultiplier={1.2}>
+                  {recordingRequest.from.name} wants to record this call
+                </Text>
+                <Text style={styles.consentNote}>
+                  The recording is saved privately. You can stop it at any time.
+                </Text>
+                <View style={styles.consentButtons}>
+                  <Pressable
+                    style={[styles.consentBtn, styles.consentDecline]}
+                    onPress={() => respondRecording(false)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Do not allow recording"
+                  >
+                    <Text style={styles.consentBtnText}>Not now</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.consentBtn, styles.consentAllow]}
+                    onPress={() => respondRecording(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Allow recording"
+                  >
+                    <Text style={styles.consentBtnText}>Allow</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
+            {incoming ? (
+              <View
+                style={[
+                  styles.incomingRow,
+                  { paddingBottom: m.incomingBottom },
+                ]}
+              >
+                <BigButton
+                  icon="phone-hangup"
+                  label="Decline"
+                  color={RED}
+                  size={m.bigSize}
+                  onPress={rejectCall}
+                />
+                <BigButton
+                  icon={call.video ? 'video' : 'phone'}
+                  label="Accept"
+                  color={GREEN}
+                  size={m.bigSize}
+                  onPress={acceptCall}
+                />
+              </View>
+            ) : (
+              <View style={[styles.panel, { paddingBottom: m.panelBottom }]}>
+                <View style={styles.handle} />
+                {ended ? (
+                  <Text style={styles.endedText} maxFontSizeMultiplier={1.2}>
+                    {call.endText}
+                  </Text>
+                ) : (
+                  <View
+                    style={[styles.actionsRow, { width: m.contentWidth - 40 }]}
+                  >
+                    <Action
+                      icon="volume-high"
+                      label="Speaker"
+                      text="Speaker"
+                      size={btn}
+                      cell={cell}
+                      active={speakerOn}
+                      onPress={toggleSpeaker}
+                    />
+                    <Action
+                      icon={cameraOn ? 'video' : 'video-off'}
+                      label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+                      text="Video"
+                      size={btn}
+                      cell={cell}
+                      active={cameraOn}
+                      onPress={toggleCamera}
+                    />
+                    <Action
+                      icon={muted ? 'microphone-off' : 'microphone'}
+                      label={muted ? 'Unmute' : 'Mute'}
+                      text={muted ? 'Unmute' : 'Mute'}
+                      size={btn}
+                      cell={cell}
+                      active={muted}
+                      onPress={toggleMute}
+                    />
+                    {localVideo && (
+                      <Action
+                        icon="camera-flip-outline"
+                        label="Switch camera"
+                        text="Flip"
+                        size={btn}
+                        cell={cell}
+                        onPress={flipCamera}
+                      />
+                    )}
+                    {showRecord && (
+                      <Action
+                        size={btn}
+                        cell={cell}
+                        icon={
+                          recording === 'on'
+                            ? 'record-circle'
+                            : 'record-circle-outline'
+                        }
+                        label={
+                          recording === 'on'
+                            ? 'Stop recording'
+                            : recording === 'asking'
+                            ? 'Waiting for them to allow recording'
+                            : 'Record call'
+                        }
+                        text={recording === 'on' ? 'Stop' : 'Record'}
+                        active={recording === 'on'}
+                        onPress={
+                          recording === 'on'
+                            ? stopRecording
+                            : recording === 'asking'
+                            ? undefined
+                            : requestRecording
+                        }
+                      />
+                    )}
+                    <View style={[styles.action, { width: cell }]}>
+                      <Pressable
+                        onPress={endCall}
+                        style={[
+                          styles.endBtn,
+                          { width: btn, height: btn, borderRadius: btn / 2 },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel="End call"
+                      >
+                        <Icon
+                          name="phone-hangup"
+                          size={Math.round(btn * 0.46)}
+                          color="#fff"
+                        />
+                      </Pressable>
+                      <Text
+                        style={styles.actionLabel}
+                        maxFontSizeMultiplier={1.2}
+                      >
+                        End
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+          </SafeAreaView>
+          {addOpen && canAdd && !ended && (
+            <AddPersonCard
+              title="Add someone to this call"
+              note="Their phone rings. This call becomes a group call."
+              onAdd={addPersonToCall}
+              onClose={() => setAddOpen(false)}
             />
-          </View>
-        )}
-      </View>
+          )}
+          {smallVideo && (
+            <View
+              style={[
+                styles.selfView,
+                {
+                  top: m.selfTop,
+                  right: m.selfRight,
+                  width: m.selfWidth,
+                  height: m.selfHeight,
+                },
+              ]}
+            >
+              <CallVideo
+                trackRef={localVideo}
+                style={styles.fill}
+                mirror={frontCamera}
+                zOrder={1}
+              />
+            </View>
+          )}
+        </View>
+      </SafeAreaProvider>
     </Modal>
   );
 }
