@@ -48,7 +48,7 @@ test('rings, then gives each person their own token for the call room only', asy
   const incoming = once(b, 'call:incoming');
   const res = await startCall(a, 'b@x.com', true);
   assert.equal(res.ok, true);
-  assert.deepEqual((await incoming)[0], {callId: res.callId, from: {id: 'a@x.com', name: 'Asha'}, video: true});
+  assert.deepEqual((await incoming)[0], {callId: res.callId, from: {id: 'a@x.com', name: 'Asha', photo: null}, video: true});
 
   // A third person can't call either of them while busy, and can't accept someone else's call
   assert.deepEqual(await startCall(c, 'a@x.com'), {ok: false, error: 'busy'});
@@ -134,4 +134,28 @@ test('without LiveKit settings, calls are refused with a clear reason', async ()
   assert.deepEqual(await startCall(a, 'b'), {ok: false, error: 'not-configured'});
   const res = await fetch(`${url}/health`);
   assert.equal((await res.json()).livekitConfigured, false);
+});
+
+test('the profile photo goes to the other person in a call, never into the online list, and only a small image is accepted', async () => {
+  const photo = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+  const a = await join('a@x.com', 'Asha');
+  const b = connect(url, {auth: {userId: 'b@x.com', name: 'Bilal', photo}, transports: ['websocket'], reconnection: false});
+  clients.push(b);
+  await once(b, 'session');
+  const lists = [];
+  a.on('users', list => lists.push(list));
+  const incoming = once(b, 'call:incoming');
+  const res = await startCall(a, 'b@x.com', false);
+  assert.equal(res.photo, photo); // the caller sees the photo of the person called
+  assert.equal(lists.length > 0 && JSON.stringify(lists).includes('base64'), false);
+  b.emit('call:end', {callId: res.callId});
+  await incoming;
+
+  // a photo that is not a small image data URI is dropped
+  b.emit('profile:photo', 'https://example.com/x.png');
+  const c = await join('c@x.com', 'Chandni');
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const res2 = await startCall(c, 'b@x.com', false);
+  assert.equal(res2.ok, true);
+  assert.equal(res2.photo, null);
 });

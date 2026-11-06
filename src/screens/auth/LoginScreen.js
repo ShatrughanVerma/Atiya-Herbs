@@ -122,6 +122,8 @@ export default function LoginScreen({navigation}) {
                   placeholderTextColor={PLACEHOLDER}
                   autoCapitalize="none"
                   autoComplete="username"
+                  textContentType="username"
+                  importantForAutofill="yes"
                   autoCorrect={false}
                   maxLength={254}
                   keyboardType="email-address"
@@ -138,6 +140,8 @@ export default function LoginScreen({navigation}) {
                   placeholderTextColor={PLACEHOLDER}
                   autoCapitalize="none"
                   autoComplete="password"
+                  textContentType="password"
+                  importantForAutofill="yes"
                   secureTextEntry={!showPassword}
                   maxLength={PASSWORD_MAX}
                   returnKeyType="done"

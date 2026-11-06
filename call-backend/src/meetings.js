@@ -15,7 +15,8 @@ const express = require('express');
 //   meeting:leave  {id}
 //   meeting:end    {id}                        host: ends it for everyone
 //   meeting:state  {id, muted?, cameraOn?}     your mic / camera, shown to the others
-//   meeting:chat   {id, text}
+//   meeting:chat   {id, text, to: <person id> | 'all'}   (a private message goes only to that person)
+//   meeting:chat-receipt {id, messageIds, state: 'delivered' | 'seen'}
 //   meeting:mute   {id, userId | 'all'}        host: asks someone (or everyone) to mute
 //   meeting:remove {id, userId}                host: takes someone out (they cannot rejoin)
 //   meeting:lock   {id, locked}                host: stop (or allow) new people joining
@@ -48,6 +49,8 @@ const validId = raw => raw.length === ID_LENGTH && [...raw].every(c => LETTERS.i
 const normalizeUserId = value => String(value || '').trim().toLowerCase().slice(0, 120);
 
 const CHAT_KEEP = 200;
+// a message to one person is seen only by the sender and that person
+const canSee = (message, userId) => !message.to || message.from.id === userId || message.to.id === userId;
 const CHAT_MAX_LENGTH = 1000;
 const iso = ms => new Date(ms).toISOString();
 
@@ -316,7 +319,7 @@ function createMeetings({
     }
     const join = await joinDetails(m, userId);
     emitUpdate(m);
-    return {ok: true, meeting: snapshot(m), join, chat: m.chat, you: {id: userId, role: m.participants.get(userId).role}};
+    return {ok: true, meeting: snapshot(m), join, chat: m.chat.filter(c => canSee(c, userId)), you: {id: userId, role: m.participants.get(userId).role}};
   }
 
   const guard = (socket, payload, reply, {hostOnly = false} = {}) => {
@@ -471,14 +474,57 @@ function createMeetings({
       if (g.me.chatTimes.length >= 8) {
         return reply({ok: false, error: 'slow-down'});
       }
+      // Not everybody: a message goes to the one person chosen, or to everyone only when 'all' is asked for
+      let to = null;
+      if (payload.to !== 'all') {
+        const target = g.m.participants.get(String(payload.to));
+        if (!target || target.id === g.me.id) {
+          return reply({ok: false, error: target ? 'no-recipient' : payload.to ? 'not-found' : 'no-recipient'});
+        }
+        to = {id: target.id, name: target.name};
+      }
       g.me.chatTimes.push(t);
-      const message = {id: crypto.randomUUID(), from: {id: g.me.id, name: g.me.name}, text, at: iso(t)};
+      const message = {id: crypto.randomUUID(), from: {id: g.me.id, name: g.me.name}, to, text, at: iso(t)};
       g.m.chat.push(message);
       if (g.m.chat.length > CHAT_KEEP) {
         g.m.chat.shift();
       }
-      io.to(room(g.m)).emit('meeting:chat', {id: format(g.m.raw), message});
+      const event = {id: format(g.m.raw), message};
+      if (!to) {
+        io.to(room(g.m)).emit('meeting:chat', event);
+      } else {
+        for (const p of [g.me, g.m.participants.get(to.id)]) {
+          if (p && p.socketId) {
+            io.to(p.socketId).emit('meeting:chat', event);
+          }
+        }
+      }
       reply({ok: true, message});
+    }));
+
+    // A phone tells the sender that a message reached it ('delivered') or was read ('seen'): the double ticks
+    socket.on('meeting:chat-receipt', ack((payload, reply) => {
+      const g = guard(socket, payload, reply);
+      if (!g) {
+        return;
+      }
+      const state = payload.state === 'seen' ? 'seen' : 'delivered';
+      const ids = (Array.isArray(payload.messageIds) ? payload.messageIds : []).slice(0, 200).map(String);
+      const byAuthor = new Map();
+      for (const message of g.m.chat) {
+        if (ids.includes(message.id) && message.from.id !== g.me.id && canSee(message, g.me.id)) {
+          const list = byAuthor.get(message.from.id) || [];
+          list.push(message.id);
+          byAuthor.set(message.from.id, list);
+        }
+      }
+      for (const [authorId, messageIds] of byAuthor) {
+        const author = g.m.participants.get(authorId);
+        if (author && author.socketId) {
+          io.to(author.socketId).emit('meeting:chat-receipt', {id: format(g.m.raw), messageIds, userId: g.me.id, state});
+        }
+      }
+      reply({ok: true});
     }));
 
     socket.on('meeting:mute', ack((payload, reply) => {

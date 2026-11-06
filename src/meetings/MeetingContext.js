@@ -34,6 +34,7 @@ const MEETING_ERRORS = {
   locked: 'The host has locked that meeting.',
   full: 'That meeting is full.',
   'slow-down': 'Please wait a moment and try again.',
+  'no-recipient': 'Choose who to send the message to.',
   timeout: 'The server did not answer. Check your internet and try again.',
   failed: 'Something went wrong. Please try again.',
 };
@@ -51,6 +52,7 @@ export function MeetingProvider({ children }) {
   const [status, setStatus] = useState('idle'); // idle | joining | live
   const [meeting, setMeeting] = useState(null); // the server's picture of it: title, host, people, locked
   const [chat, setChat] = useState([]);
+  const [receipts, setReceipts] = useState({}); // messageId -> {delivered: {userId: true}, seen: {userId: true}}
   const [unread, setUnread] = useState(0);
   const [muted, setMuted] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
@@ -72,6 +74,8 @@ export function MeetingProvider({ children }) {
   const meetingIdRef = useRef(null);
   const statusRef = useRef('idle');
   const chatOpenRef = useRef(false);
+  const chatRef = useRef([]);
+  const seenSentRef = useRef(new Set()); // my 'seen' receipts already sent
   const seenChatRef = useRef(new Set()); // ids of the chat messages already shown, so none is added or counted twice
   const noticeTimer = useRef(null);
   const myIdRef = useRef(myId);
@@ -125,7 +129,10 @@ export function MeetingProvider({ children }) {
     clearTimeout(noticeTimer.current);
     setStatus('idle');
     setMeeting(null);
+    chatRef.current = [];
     setChat([]);
+    setReceipts({});
+    seenSentRef.current = new Set();
     setUnread(0);
     setMuted(false);
     setCameraOn(false);
@@ -224,6 +231,7 @@ export function MeetingProvider({ children }) {
       seenChatRef.current = new Set((res.chat || []).map(m => m.id));
       agora.setSpeaker(true);
       setMeeting(res.meeting);
+      chatRef.current = res.chat || [];
       setChat(res.chat || []);
       setStatusBoth('live');
       return true;
@@ -412,12 +420,13 @@ export function MeetingProvider({ children }) {
   }, [sharing, ask]);
 
   const sendChat = useCallback(
-    async text => {
+    // `to` is the id of the one person it goes to, or 'all' when the person chose everyone
+    async (text, to) => {
       const id = meetingIdRef.current;
-      if (!id || !text.trim()) {
+      if (!id || !text.trim() || !to) {
         return false;
       }
-      const res = await ask('meeting:chat', { id, text });
+      const res = await ask('meeting:chat', { id, text, to });
       if (!res.ok) {
         showNotice(MEETING_ERRORS[res.error] || 'The message was not sent.');
       }
@@ -431,8 +440,16 @@ export function MeetingProvider({ children }) {
     chatOpenRef.current = open;
     if (open) {
       setUnread(0);
+      const id = meetingIdRef.current;
+      const unseen = chatRef.current
+        .filter(m => m.from.id !== myIdRef.current && !seenSentRef.current.has(m.id))
+        .map(m => m.id);
+      if (id && unseen.length) {
+        unseen.forEach(mid => seenSentRef.current.add(mid));
+        ask('meeting:chat-receipt', { id, messageIds: unseen, state: 'seen' });
+      }
     }
-  }, []);
+  }, [ask]);
 
   // ---- host controls (the server refuses them from anyone else) ----
   const hostAction = useCallback(
@@ -556,10 +573,37 @@ export function MeetingProvider({ children }) {
         return;
       }
       seenChatRef.current.add(message.id);
+      chatRef.current = [...chatRef.current, message];
       setChat(list => [...list, message]);
-      if (!chatOpenRef.current && message.from.id !== myIdRef.current) {
-        setUnread(count => count + 1);
+      if (message.from.id !== myIdRef.current) {
+        const seen = chatOpenRef.current;
+        if (seen) {
+          seenSentRef.current.add(message.id);
+        } else {
+          setUnread(count => count + 1);
+        }
+        ask('meeting:chat-receipt', {
+          id,
+          messageIds: [message.id],
+          state: seen ? 'seen' : 'delivered',
+        });
       }
+    };
+    const onReceipt = ({ id, messageIds, userId, state }) => {
+      if (id !== meetingIdRef.current) {
+        return;
+      }
+      setReceipts(all => {
+        const next = { ...all };
+        for (const mid of messageIds) {
+          const r = next[mid] || { delivered: {}, seen: {} };
+          next[mid] = {
+            delivered: { ...r.delivered, [userId]: true },
+            seen: state === 'seen' ? { ...r.seen, [userId]: true } : r.seen,
+          };
+        }
+        return next;
+      });
     };
     const onMuteRequest = ({ id, by }) => {
       if (id !== meetingIdRef.current) {
@@ -599,6 +643,7 @@ export function MeetingProvider({ children }) {
 
     socket.on('meeting:update', onUpdate);
     socket.on('meeting:chat', onChat);
+    socket.on('meeting:chat-receipt', onReceipt);
     socket.on('meeting:mute-request', onMuteRequest);
     socket.on('meeting:removed', onRemoved);
     socket.on('meeting:ended', onEnded);
@@ -636,6 +681,7 @@ export function MeetingProvider({ children }) {
     return () => {
       socket.off('meeting:update', onUpdate);
       socket.off('meeting:chat', onChat);
+      socket.off('meeting:chat-receipt', onReceipt);
       socket.off('meeting:mute-request', onMuteRequest);
       socket.off('meeting:removed', onRemoved);
       socket.off('meeting:ended', onEnded);
@@ -644,7 +690,7 @@ export function MeetingProvider({ children }) {
       socket.off('meeting:invite-result', onInviteResult);
       socket.off('connect', onReconnect);
     };
-  }, [socket, showNotice, endedByServer]);
+  }, [socket, ask, showNotice, endedByServer]);
 
   // Logging out (or switching account) leaves the meeting
   useEffect(() => {
@@ -730,6 +776,7 @@ export function MeetingProvider({ children }) {
       people,
       isHost,
       chat,
+      receipts,
       unread,
       muted,
       cameraOn,
@@ -769,6 +816,7 @@ export function MeetingProvider({ children }) {
       people,
       isHost,
       chat,
+      receipts,
       unread,
       muted,
       cameraOn,

@@ -154,6 +154,7 @@ function MoreTile({ count, width, height, onPress }) {
 }
 
 function PeoplePanel({ onClose, onLeaveOrEnd, onAddPerson }) {
+  const insets = useSafeAreaInsets();
   const {
     people,
     invited,
@@ -179,7 +180,7 @@ function PeoplePanel({ onClose, onLeaveOrEnd, onAddPerson }) {
       ],
     );
   return (
-    <View style={styles.sheet}>
+    <View style={[styles.sheet, { bottom: insets.bottom }]}>
       <View style={styles.sheetHead}>
         <Text style={styles.sheetTitle}>People ({people.length})</Text>
         <Pressable onPress={onClose} accessibilityLabel="Close people">
@@ -312,22 +313,26 @@ function useKeyboardLift() {
   const [lift, setLift] = useState(0);
   useEffect(() => {
     const show = Keyboard.addListener('keyboardDidShow', e => {
-      const bottomOfScreen = Dimensions.get('screen').height - insets.bottom;
-      setLift(Math.max(0, bottomOfScreen - e.endCoordinates.screenY));
+      // the Modal reaches the very bottom of the screen, so the keyboard's height is measured from there
+      setLift(
+        Math.max(0, Dimensions.get('screen').height - e.endCoordinates.screenY),
+      );
     });
     const hide = Keyboard.addListener('keyboardDidHide', () => setLift(0));
     return () => {
       show.remove();
       hide.remove();
     };
-  }, [insets.bottom]);
-  return lift;
+  }, []);
+  // closed keyboard: stay above the nav bar; open keyboard: sit right on top of it
+  return lift > 0 ? lift : insets.bottom;
 }
 
 function ChatPanel({ onClose }) {
-  const { chat, sendChat, setChatOpen } = useMeeting();
+  const { chat, sendChat, setChatOpen, receipts, people } = useMeeting();
   const lift = useKeyboardLift();
   const [text, setText] = useState('');
+  const [to, setTo] = useState(null); // who the next message goes to: a person's id, or 'all'; nobody until one is chosen
   const list = useRef(null);
   useEffect(() => {
     setChatOpen(true);
@@ -338,11 +343,11 @@ function ChatPanel({ onClose }) {
   }, [chat.length]);
   const submit = async () => {
     const sending = text;
-    if (!sending.trim()) {
+    if (!sending.trim() || !to) {
       return;
     }
     setText('');
-    if (!(await sendChat(sending))) {
+    if (!(await sendChat(sending, to))) {
       setText(sending); // keep what was typed when it did not go
     }
   };
@@ -369,18 +374,74 @@ function ChatPanel({ onClose }) {
             <View style={[styles.msgWrap, mine && styles.msgWrapMine]}>
               <View style={[styles.msg, mine && styles.msgMine]}>
                 {!mine && <Text style={styles.msgFrom}>{item.from.name}</Text>}
+                {!!item.to && (
+                  <Text style={styles.msgPrivate}>
+                    {mine ? `Private to ${item.to.name}` : 'Private to you'}
+                  </Text>
+                )}
                 <Text style={styles.msgText}>{item.text}</Text>
+                {mine && (
+                  <Ticks
+                    receipt={receipts[item.id]}
+                    others={people.filter(
+                      p =>
+                        !p.isMe &&
+                        !p.offline &&
+                        (!item.to || p.id === item.to.id),
+                    )}
+                  />
+                )}
               </View>
             </View>
           );
         }}
       />
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.toRow}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.toRowContent}
+      >
+        <Text style={styles.toLabel}>To</Text>
+        {people
+          .filter(p => !p.isMe)
+          .map(p => (
+            <Pressable
+              key={p.id}
+              onPress={() => setTo(p.id)}
+              style={[styles.toChip, to === p.id && styles.toChipOn]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: to === p.id }}
+              accessibilityLabel={`Send to ${p.name}`}
+            >
+              <Text style={styles.toChipText} numberOfLines={1}>
+                {p.name}
+              </Text>
+            </Pressable>
+          ))}
+        <Pressable
+          onPress={() => setTo('all')}
+          style={[styles.toChip, to === 'all' && styles.toChipOn]}
+          accessibilityRole="button"
+          accessibilityState={{ selected: to === 'all' }}
+          accessibilityLabel="Send to everyone"
+        >
+          <Text style={styles.toChipText}>Everyone</Text>
+        </Pressable>
+      </ScrollView>
       <View style={styles.chatInputRow}>
         <TextInput
           style={styles.chatInput}
           value={text}
           onChangeText={setText}
-          placeholder="Message everyone"
+          placeholder={
+            !to
+              ? 'Choose who to send to'
+              : to === 'all'
+              ? 'Message everyone'
+              : `Message ${people.find(p => p.id === to)?.name || ''}`
+          }
           placeholderTextColor="rgba(255,255,255,0.5)"
           maxLength={1000}
           multiline
@@ -388,13 +449,31 @@ function ChatPanel({ onClose }) {
         />
         <Pressable
           onPress={submit}
-          style={styles.sendBtn}
+          style={[styles.sendBtn, !to && styles.sendOff]}
+          disabled={!to}
           accessibilityRole="button"
           accessibilityLabel="Send message"
         >
           <Icon name="send" size={22} color="#fff" />
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+// One tick: sent, but nobody else is online to get it. Two grey: everyone online has it. Two blue: everyone online read it.
+function Ticks({ receipt, others }) {
+  const all = key =>
+    others.length > 0 && others.every(p => receipt?.[key]?.[p.id]);
+  const seen = all('seen');
+  const delivered = seen || all('delivered');
+  return (
+    <View style={styles.ticks} accessibilityLabel={seen ? 'Seen' : delivered ? 'Delivered' : 'Sent'}>
+      <Icon
+        name={delivered ? 'check-all' : 'check'}
+        size={16}
+        color={seen ? '#53BDEB' : 'rgba(255,255,255,0.6)'}
+      />
     </View>
   );
 }
@@ -893,6 +972,21 @@ const styles = StyleSheet.create({
   },
   leaveText: { color: RED, fontSize: 15, fontWeight: '600' },
   chatList: { flex: 1 },
+  msgPrivate: { color: 'rgba(255,255,255,0.6)', fontSize: 11, fontStyle: 'italic', marginBottom: 2 },
+  toRow: { flexGrow: 0, marginTop: 8 },
+  toRowContent: { alignItems: 'center', gap: 8, paddingRight: 8 },
+  toLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 13 },
+  toChip: {
+    maxWidth: 160,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  toChipOn: { backgroundColor: GREEN },
+  toChipText: { color: '#fff', fontSize: 14 },
+  sendOff: { opacity: 0.4 },
+  ticks: { alignSelf: 'flex-end', marginTop: 2 },
   chatEmpty: {
     color: 'rgba(255,255,255,0.6)',
     textAlign: 'center',

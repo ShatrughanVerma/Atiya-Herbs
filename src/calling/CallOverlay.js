@@ -365,7 +365,11 @@ export default function CallOverlay() {
 
             <View style={styles.middle}>
               {bigVideo ? null : (
-                <Avatar name={call.peer.name} size={m.avatar} />
+                <Avatar
+                  name={call.peer.name}
+                  photo={call.peer.photo}
+                  size={m.avatar}
+                />
               )}
             </View>
 

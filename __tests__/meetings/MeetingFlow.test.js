@@ -354,10 +354,11 @@ test('chat: messages reach everyone once, unread messages are counted until the 
   expect(api.unread).toBe(0); // the chat is open, and your own messages never count
 
   socket.replies['meeting:chat'] = { ok: true };
-  await act(() => api.sendChat('  Thanks  '));
+  await act(() => api.sendChat('  Thanks  ', 'asha'));
   expect(sent('meeting:chat')[0].payload).toEqual({
     id: ID,
     text: '  Thanks  ',
+    to: 'asha',
   });
 
   socket.replies['meeting:chat'] = { ok: false, error: 'slow-down' };
@@ -365,12 +366,13 @@ test('chat: messages reach everyone once, unread messages are counted until the 
     await (async () => {
       let r;
       await act(async () => {
-        r = await api.sendChat('again');
+        r = await api.sendChat('again', 'all');
       });
       return r;
     })(),
   ).toBe(false);
   expect(api.notice).toMatch(/wait a moment/);
+  expect(await api.sendChat('nobody chosen')).toBe(false); // no recipient, so nothing is sent
   await act(() =>
     socket.serverSends('meeting:chat', {
       id: 'someone-elses-meeting',

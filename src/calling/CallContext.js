@@ -88,6 +88,7 @@ export function CallProvider({ children }) {
   const { user } = useAuth();
   const myId = callUserId(user);
   const myName = user?.name || myId;
+  const myPhotoRef = useRef(null); // my profile photo as a small data URI, given to the people I call
 
   const [serverConnected, setServerConnected] = useState(false);
   // The connection to the call server, shared with the group meetings and conference calls (src/meetings, src/conference): one login, one connection
@@ -253,7 +254,7 @@ export function CallProvider({ children }) {
         [
           {
             id: String(nextHistoryId.current++),
-            peer: current.peer,
+            peer: { id: current.peer?.id, name: current.peer?.name }, // no photo in the saved list
             video: current.video,
             direction: current.direction,
             outcome,
@@ -535,7 +536,11 @@ export function CallProvider({ children }) {
           );
           return;
         }
-        patch({ id: res.callId, status: 'ringing' });
+        patch({
+          id: res.callId,
+          status: 'ringing',
+          ...(res.photo ? { peer: { ...peer, photo: res.photo } } : null),
+        });
       });
     },
     [abandon, emit, patch, setCurrent],
@@ -753,6 +758,39 @@ export function CallProvider({ children }) {
     setRecording('off');
   }, [emit]);
 
+  // Turn my profile photo (a file on this phone) into a small data URI the call server can hand to the other person
+  const photoUri = user?.photo || null;
+  useEffect(() => {
+    let cancelled = false;
+    const send = value => {
+      myPhotoRef.current = value;
+      socketRef.current?.emit('profile:photo', value);
+    };
+    if (!photoUri) {
+      send(null);
+      return undefined;
+    }
+    (async () => {
+      try {
+        const blob = await (await fetch(photoUri)).blob();
+        const data = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        if (!cancelled) {
+          send(typeof data === 'string' ? data : null);
+        }
+      } catch (e) {
+        // no photo is shared; the other person sees the initials
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [photoUri]);
+
   // Connect to the call backend while someone with a mobile number is logged in
   useEffect(() => {
     if (!myId) {
@@ -760,7 +798,7 @@ export function CallProvider({ children }) {
     }
     const socket = io(CALL_BACKEND_URL, {
       transports: ['websocket'],
-      auth: { userId: myId, name: myName },
+      auth: { userId: myId, name: myName, photo: myPhotoRef.current },
       reconnectionDelayMax: 5000,
     });
     socketRef.current = socket;

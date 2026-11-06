@@ -202,7 +202,7 @@ test('the call id is the 10-digit mobile number, whatever format it was saved in
 
 test('connects as the logged-in user and lists everyone else online', async () => {
   const socket = await render();
-  expect(socket.opts.auth).toEqual({ userId: '9876543210', name: 'Asha' });
+  expect(socket.opts.auth).toEqual({ userId: '9876543210', name: 'Asha', photo: null });
 
   await act(() =>
     socket.serverSends('users', [

@@ -38,7 +38,7 @@ const join = async (userId, name = userId) => {
   socket.userId = userId;
   await once(socket, 'session');
   socket.events = [];
-  for (const e of ['meeting:update', 'meeting:chat', 'meeting:mute-request', 'meeting:removed', 'meeting:ended', 'meeting:invitation', 'meeting:invitation-ended', 'meeting:invite-result', 'call:upgrade', 'call:ended', 'call:ready']) {
+  for (const e of ['meeting:update', 'meeting:chat', 'meeting:chat-receipt', 'meeting:mute-request', 'meeting:removed', 'meeting:ended', 'meeting:invitation', 'meeting:invitation-ended', 'meeting:invite-result', 'call:upgrade', 'call:ended', 'call:ready']) {
     socket.on(e, data => socket.events.push({e, data}));
   }
   return socket;
@@ -115,7 +115,7 @@ test('an unknown, mistyped or ended meeting cannot be joined', async () => {
 
 test('chat reaches everyone at once, a late joiner gets the earlier messages, and it is limited', async () => {
   const {asha, bilal, chandni, id} = await threePeople();
-  const sent = await ask(bilal, 'meeting:chat', {id, text: '  Namaste sab  '});
+  const sent = await ask(bilal, 'meeting:chat', {id, to: 'all', text: '  Namaste sab  '});
   assert.deepEqual([sent.ok, sent.message.text, sent.message.from], [true, 'Namaste sab', {id: 'bilal', name: 'Bilal'}]);
   for (const s of [asha, bilal, chandni]) {
     assert.equal((await seen(s, 'meeting:chat')).message.text, 'Namaste sab');
@@ -123,13 +123,45 @@ test('chat reaches everyone at once, a late joiner gets the earlier messages, an
   const late = await ask(await join('dev', 'Dev'), 'meeting:join', {id});
   assert.deepEqual(late.chat.map(m => m.text), ['Namaste sab']);
 
-  assert.deepEqual(await ask(asha, 'meeting:chat', {id, text: '   '}), {ok: false, error: 'empty'});
-  assert.equal((await ask(asha, 'meeting:chat', {id, text: 'x'.repeat(5000)})).message.text.length, 1000);
+  assert.deepEqual(await ask(asha, 'meeting:chat', {id, to: 'all', text: '   '}), {ok: false, error: 'empty'});
+  assert.equal((await ask(asha, 'meeting:chat', {id, to: 'all', text: 'x'.repeat(5000)})).message.text.length, 1000);
   let last;
   for (let i = 0; i < 10; i++) {
-    last = await ask(chandni, 'meeting:chat', {id, text: `spam ${i}`});
+    last = await ask(chandni, 'meeting:chat', {id, to: 'all', text: `spam ${i}`});
   }
   assert.deepEqual(last, {ok: false, error: 'slow-down'});
+});
+
+test('a message goes only to the person it is sent to, never to everybody by default', async () => {
+  const {asha, bilal, chandni, id} = await threePeople();
+  assert.deepEqual(await ask(bilal, 'meeting:chat', {id, text: 'hi'}), {ok: false, error: 'no-recipient'});
+  assert.deepEqual(await ask(bilal, 'meeting:chat', {id, to: 'bilal', text: 'hi'}), {ok: false, error: 'no-recipient'});
+  assert.deepEqual(await ask(bilal, 'meeting:chat', {id, to: 'nobody', text: 'hi'}), {ok: false, error: 'not-found'});
+  const sent = await ask(bilal, 'meeting:chat', {id, to: 'asha', text: 'only you'});
+  assert.deepEqual(sent.message.to, {id: 'asha', name: 'Asha'});
+  assert.equal((await seen(asha, 'meeting:chat')).message.text, 'only you');
+  await seen(bilal, 'meeting:chat');
+  await wait(100);
+  assert.equal(chandni.events.some(x => x.e === 'meeting:chat'), false);
+  // a late joiner and the third person do not get it from the history either
+  assert.deepEqual((await ask(await join('dev', 'Dev'), 'meeting:join', {id})).chat, []);
+  // and cannot send receipts for it
+  await ask(chandni, 'meeting:chat-receipt', {id, messageIds: [sent.message.id], state: 'seen'});
+  assert.equal(bilal.events.some(x => x.e === 'meeting:chat-receipt'), false);
+});
+
+test('delivered and seen receipts go back to the sender only', async () => {
+  const {asha, bilal, id} = await threePeople();
+  const sent = await ask(bilal, 'meeting:chat', {id, to: 'asha', text: 'hello'});
+  const mid = sent.message.id;
+  await ask(asha, 'meeting:chat-receipt', {id, messageIds: [mid], state: 'delivered'});
+  const got = await seen(bilal, 'meeting:chat-receipt', d => d.state === 'delivered');
+  assert.deepEqual([got.messageIds, got.userId], [[mid], 'asha']);
+  await ask(asha, 'meeting:chat-receipt', {id, messageIds: [mid], state: 'seen'});
+  assert.equal((await seen(bilal, 'meeting:chat-receipt', d => d.state === 'seen')).userId, 'asha');
+  // nobody gets a receipt for their own message
+  await ask(bilal, 'meeting:chat-receipt', {id, messageIds: [mid], state: 'seen'});
+  assert.equal(asha.events.some(x => x.e === 'meeting:chat-receipt'), false);
 });
 
 test('mic and camera changes are shown to everyone', async () => {
@@ -163,7 +195,7 @@ test('the host can remove someone: they are told, the list updates, and they can
   await roster(asha, ['asha', 'bilal']);
   await roster(bilal, ['asha', 'bilal']);
   assert.deepEqual(await ask(chandni, 'meeting:join', {id}), {ok: false, error: 'removed'});
-  assert.deepEqual(await ask(chandni, 'meeting:chat', {id, text: 'hello'}), {ok: false, error: 'not-in-meeting'});
+  assert.deepEqual(await ask(chandni, 'meeting:chat', {id, to: 'asha', text: 'hello'}), {ok: false, error: 'not-in-meeting'});
 });
 
 test('a locked meeting turns new people away, and allows them again when unlocked', async () => {
@@ -230,7 +262,7 @@ test('a dropped connection keeps your place for a short while, and coming back k
   assert.deepEqual([res.ok, res.you.role], [true, 'host']); // still the host
   await seen(bilal, 'meeting:update', d => d.participants.find(p => p.id === 'asha')?.offline === false);
   await wait(300); // longer than the grace period: the old connection must not remove them
-  assert.equal((await ask(back, 'meeting:chat', {id, text: 'back'})).ok, true);
+  assert.equal((await ask(back, 'meeting:chat', {id, to: 'all', text: 'back'})).ok, true);
 });
 
 test('someone who does not come back is removed after the grace period, and the host passes on', async () => {
@@ -355,7 +387,7 @@ test('six people can be in one meeting at once, and the list stays correct as pe
   await roster(asha, ['asha', 'p1', 'p2', 'p3', 'p4', 'p5']);
   await ask(others[2], 'meeting:leave', {id: meeting.id});
   await roster(asha, ['asha', 'p1', 'p2', 'p4', 'p5']);
-  assert.equal((await ask(others[0], 'meeting:chat', {id: meeting.id, text: 'hi'})).ok, true);
+  assert.equal((await ask(others[0], 'meeting:chat', {id: meeting.id, to: 'all', text: 'hi'})).ok, true);
   for (const s of [asha, others[1], others[4]]) {
     assert.equal((await seen(s, 'meeting:chat')).message.from.id, 'p1');
   }

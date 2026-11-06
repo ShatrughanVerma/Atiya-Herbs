@@ -15,7 +15,8 @@ const crypto = require('node:crypto');
 // Server → client
 //   session       {activeCallId}                    on every (re)connect
 //   users         [{id, name, busy}]                everyone online
-//   call:incoming {callId, from: {id, name}, video}
+//   call:incoming {callId, from: {id, name, photo?}, video}
+//   profile:photo <data URI or null>   (the app's small profile photo, shown to the other person in a call)
 //   call:ready    {callId, provider, ...}           both people, after accept: join the call. LiveKit sends
 //                                                   {serverUrl, token}; Agora sends {appId, channel, account, token}
 //   call:upgrade  {callId, conferenceId}            the call became a conference call: join it (conference:join)
@@ -48,6 +49,11 @@ function attachSignaling(
   const calls = new Map(); // callId -> {id, room, caller, callee, video, state: 'ringing'|'active', ringTimer}
 
   // TODO (production): verify a signed login token here instead of trusting the userId the app sends
+  // only a small JPEG or PNG data URI is accepted
+  const PHOTO_MAX = 250_000;
+  const cleanPhoto = value =>
+    typeof value === 'string' && value.length <= PHOTO_MAX && /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(value) ? value : null;
+
   io.use((socket, next) => {
     const id = normalizeId(socket.handshake.auth?.userId);
     if (!id) {
@@ -55,6 +61,7 @@ function attachSignaling(
     }
     socket.data.userId = id;
     socket.data.name = String(socket.handshake.auth?.name || id).trim().slice(0, 60);
+    socket.data.photo = cleanPhoto(socket.handshake.auth?.photo);
     next();
   });
 
@@ -127,11 +134,17 @@ function attachSignaling(
       const oldSocket = user.socketId && io.sockets.sockets.get(user.socketId);
       user.socketId = socket.id;
       user.name = socket.data.name;
+      user.photo = socket.data.photo;
       oldSocket?.disconnect(true);
     } else {
-      user = {id: me, name: socket.data.name, socketId: socket.id, callId: null, graceTimer: null};
+      user = {id: me, name: socket.data.name, photo: socket.data.photo, socketId: socket.id, callId: null, graceTimer: null};
       users.set(me, user);
     }
+    // The app sends a small copy of the profile photo (a data URI), shown to the person on the other end of a call.
+    // It is kept in memory only and given out only inside a call, never in the list of people online.
+    socket.on('profile:photo', photo => {
+      user.photo = cleanPhoto(photo);
+    });
     socket.emit('session', {activeCallId: user.callId, recordingAvailable: recording.available});
     broadcastUsers();
 
@@ -165,8 +178,8 @@ function attachSignaling(
       calls.set(id, call);
       user.callId = id;
       callee.callId = id;
-      emitTo(to, 'call:incoming', {callId: id, from: {id: me, name: user.name}, video: call.video});
-      reply({ok: true, callId: id});
+      emitTo(to, 'call:incoming', {callId: id, from: {id: me, name: user.name, photo: user.photo}, video: call.video});
+      reply({ok: true, callId: id, photo: callee.photo});
       log(`call started (${call.video ? 'video' : 'voice'}), ${calls.size} active`);
       broadcastUsers();
     });
