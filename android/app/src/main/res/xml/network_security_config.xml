@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The app talks to the Atiya Herbs API over https only.
+  The one exception is plain http to localhost and 10.0.2.2 (the PC, through `adb reverse` or the emulator) so a
+  build can be tested against the backend running on the developer's PC. Nothing outside those two addresses
+  may use plain http. The release for the Play Store uses the https address of the deployed backend
+  (src/config/api.js), so this exception is never used there.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

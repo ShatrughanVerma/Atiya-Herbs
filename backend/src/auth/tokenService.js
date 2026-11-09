@@ -8,7 +8,7 @@ const AUDIENCE = 'atiyaherbs-app';
 function createTokenService(config) {
   return {
     signAccessToken(user) {
-      return jwt.sign({role: user.role}, config.JWT_ACCESS_SECRET, {
+      return jwt.sign({roleId: user.roleId}, config.JWT_ACCESS_SECRET, {
         subject: user.id,
         expiresIn: config.JWT_ACCESS_TTL_SECONDS,
         issuer: ISSUER,
@@ -17,7 +17,7 @@ function createTokenService(config) {
       });
     },
 
-    // Returns {sub, role, ...}; throws if the token is forged, expired or for another audience
+    // Returns {sub, roleId, ...}; throws if the token is forged, expired or for another audience
     verifyAccessToken(token) {
       return jwt.verify(token, config.JWT_ACCESS_SECRET, {issuer: ISSUER, audience: AUDIENCE, algorithms: ['HS256']});
     },

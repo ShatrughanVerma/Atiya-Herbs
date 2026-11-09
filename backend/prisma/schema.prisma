@@ -1,40 +1,97 @@
-// Atiya Herbs database schema (SQL Server).
+// Atiya Herbs database schema (MySQL 8, utf8mb4).
 //
-// Notes for SQL Server:
-//  - Prisma has no native enums or JSON columns here, so role/status are checked in code and metadata is text.
-//  - Foreign keys use NoAction so SQL Server never complains about multiple cascade paths; accounts are
-//    removed explicitly in code (needed for the in-app "delete my account" requirement).
-//  - Ids use UUID v7: unique, and roughly time-ordered, which keeps the clustered index efficient.
+// Notes:
+//  - Ids are UUID v7 stored as CHAR(36): unique, and roughly time-ordered, which keeps the primary-key index efficient.
+//    Catalog rows use a readable slug id (for example "t-care") that the app already uses.
+//  - Money is whole rupees (Int), the same unit the app shows. No card or billing data is stored anywhere.
 //  - OTP codes and refresh tokens are never stored: only their one-way hashes.
+//  - Accounts are removed or anonymised in code (see users/usersService.js) for the in-app "delete my account" rule.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlserver"
+  provider = "mysql"
 }
 
+enum UserStatus {
+  active
+  blocked
+}
+
+enum OrderStatus {
+  placed
+  confirmed
+  shipped
+  delivered
+  cancelled
+}
+
+enum PaymentMethod {
+  cod
+}
+
+enum ConsultType {
+  text
+  audio
+  video
+  clinic
+}
+
+enum AppointmentStatus {
+  requested // the person asked, the clinic will suggest the time
+  booked
+  cancelled
+  completed
+}
+
+enum CallKind {
+  voice
+  video
+  conference
+  meeting
+}
+
+// ---------------------------------------------------------------- accounts and security
+
 model User {
-  id          String    @id @default(uuid(7)) @db.UniqueIdentifier
-  mobile      String    @unique @db.VarChar(15) // 10-digit Indian mobile number
-  name        String?   @db.NVarChar(100)
-  email       String?   @db.NVarChar(254)
-  role        String    @default("customer") @db.VarChar(20) // customer | doctor | distributor | moderator | admin
-  status      String    @default("active") @db.VarChar(20) // active | blocked
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  lastLoginAt DateTime?
+  id               String     @id @default(uuid(7)) @db.Char(36)
+  mobile           String     @unique @db.VarChar(15) // 10-digit Indian mobile number
+  name             String?    @db.VarChar(100)
+  email            String?    @unique @db.VarChar(254) // stored in lower case
+  // scrypt$N$r$p$salt$hash (see auth/passwordService.js). Null for accounts made by OTP only: they cannot log in
+  // with a password until one is set.
+  passwordHash     String?    @db.VarChar(255)
+  failedLoginCount Int        @default(0) // wrong passwords in a row; 5 locks the account for 15 minutes
+  lockedUntil      DateTime?
+  // Designation id from the view VW_EmpDesignationMaster (14 = Customer). A view cannot be a foreign key, so the
+  // allowed ids are checked in code (auth/roles.js).
+  // Discount credits (1 credit = Rs 1 off a consultation). Changed only together with a credit_ledger row.
+  credits          Int        @default(0)
+  roleId           Int        @default(14) @map("role_id")
+  // A short running number (shown to staff as P000123) next to the long id: easy to read out on the phone and to search
+  patientNo        Int        @unique @default(autoincrement()) @map("patient_no")
+  status           UserStatus @default(active)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  lastLoginAt      DateTime?
 
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
+  addresses     Address[]
+  orders        Order[]
+  cartItems     CartItem[]
+  appointments  Appointment[]
+  creditEntries CreditEntry[]
 
+  @@index([roleId])
   @@map("users")
 }
 
 // One row per OTP sent. Only an HMAC of the code is kept, and a row can be used once.
 model OtpChallenge {
-  id         String    @id @default(uuid(7)) @db.UniqueIdentifier
+  id         String    @id @default(uuid(7)) @db.Char(36)
   mobile     String    @db.VarChar(15)
   codeHash   String    @db.Char(64)
   attempts   Int       @default(0)
@@ -50,17 +107,17 @@ model OtpChallenge {
 // A login session. The token itself is random and shown to the app once; only its SHA-256 is stored.
 // Tokens rotate on every refresh and belong to a "family": if an old token is replayed, the whole family is revoked.
 model RefreshToken {
-  id        String    @id @default(uuid(7)) @db.UniqueIdentifier
-  userId    String    @db.UniqueIdentifier
+  id        String    @id @default(uuid(7)) @db.Char(36)
+  userId    String    @db.Char(36)
   tokenHash String    @unique @db.Char(64)
-  familyId  String    @db.UniqueIdentifier
+  familyId  String    @db.Char(36)
   expiresAt DateTime
   revokedAt DateTime?
-  userAgent String?   @db.NVarChar(255)
+  userAgent String?   @db.VarChar(255)
   ip        String?   @db.VarChar(64)
   createdAt DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([familyId])
@@ -70,16 +127,410 @@ model RefreshToken {
 // Security trail: logins, token reuse, profile changes. Never contains OTPs, tokens or health details.
 model AuditLog {
   id        BigInt   @id @default(autoincrement())
-  userId    String?  @db.UniqueIdentifier
+  userId    String?  @db.Char(36)
   action    String   @db.VarChar(64)
   ip        String?  @db.VarChar(64)
-  userAgent String?  @db.NVarChar(255)
-  metadata  String?  @db.NVarChar(Max)
+  userAgent String?  @db.VarChar(255)
+  metadata  String?  @db.Text
   createdAt DateTime @default(now())
 
-  user User? @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([action, createdAt])
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------- catalog
+
+model Category {
+  id        String @id @db.VarChar(64) // slug, e.g. "herbal-medicine"
+  name      String @db.VarChar(100)
+  icon      String @db.VarChar(64)
+  sortOrder Int    @default(0)
+
+  products Product[]
+
+  @@map("categories")
+}
+
+model Concern {
+  id        String @id @db.VarChar(64) // slug, e.g. "joint-pain"
+  name      String @db.VarChar(100)
+  icon      String @db.VarChar(64)
+  tint      String @db.VarChar(16)
+  sortOrder Int    @default(0)
+
+  products ProductConcern[]
+
+  @@map("concerns")
+}
+
+model Product {
+  id          String   @id @db.VarChar(64) // slug, e.g. "t-care"
+  name        String   @db.VarChar(150)
+  categoryId  String   @db.VarChar(64)
+  price       Int // selling price, rupees
+  mrp         Int // printed price, rupees
+  stock       Int      @default(0)
+  images      Json // list of image URLs
+  description String   @db.Text
+  benefits    Json? // list of short lines
+  howToUse    String?  @db.Text
+  ingredients String?  @db.Text
+  size        String?  @db.VarChar(60)
+  badge       String?  @db.VarChar(40)
+  bestseller  Boolean  @default(false)
+  rating      Float    @default(0)
+  reviewCount Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category  Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  concerns  ProductConcern[]
+  items     OrderItem[]
+  cartItems CartItem[]
+
+  @@index([categoryId, active])
+  @@index([active, bestseller])
+  @@map("products")
+}
+
+model ProductConcern {
+  productId String @db.VarChar(64)
+  concernId String @db.VarChar(64)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  concern Concern @relation(fields: [concernId], references: [id], onDelete: Cascade)
+
+  @@id([productId, concernId])
+  @@index([concernId])
+  @@map("product_concerns")
+}
+
+model Banner {
+  id         String  @id @default(uuid(7)) @db.Char(36)
+  badge      String? @db.VarChar(60)
+  title      String  @db.VarChar(150)
+  image      String  @db.VarChar(500) // an image URL, or a key of an image bundled in the app
+  gradient   String? @db.VarChar(200)
+  concernId  String? @db.VarChar(64)
+  categoryId String? @db.VarChar(64)
+  sortOrder  Int     @default(0)
+  active     Boolean @default(true)
+
+  @@map("banners")
+}
+
+model Coupon {
+  code        String    @id @db.VarChar(32) // upper case
+  percent     Int // 1 - 100
+  label       String    @db.VarChar(120)
+  minSubtotal Int       @default(0)
+  maxDiscount Int? // rupees, optional cap
+  expiresAt   DateTime?
+  active      Boolean   @default(true)
+
+  @@map("coupons")
+}
+
+// ---------------------------------------------------------------- cart, addresses and orders
+
+// The cart of a logged-in person, kept on the server so it follows them to a new phone. One row per product;
+// prices are never stored here (they are read from the product when the cart is shown or ordered).
+model CartItem {
+  id        String   @id @default(uuid(7)) @db.Char(36)
+  userId    String   @db.Char(36)
+  productId String   @db.VarChar(64)
+  quantity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([productId])
+  @@map("cart_items")
+}
+
+model Address {
+  id        String   @id @default(uuid(7)) @db.Char(36)
+  userId    String   @db.Char(36)
+  name      String   @db.VarChar(100)
+  phone     String   @db.VarChar(10)
+  pincode   String   @db.VarChar(6)
+  city      String   @db.VarChar(80)
+  state     String   @db.VarChar(80)
+  line1     String   @db.VarChar(200)
+  line2     String?  @db.VarChar(200)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// Prices, the coupon and the address are copied into the order when it is placed, so later changes to the
+// catalog or the address book never change an old order.
+model Order {
+  id              String        @id @default(uuid(7)) @db.Char(36)
+  orderNumber     String        @unique @db.VarChar(24)
+  userId          String?       @db.Char(36) // null once the account is deleted
+  status          OrderStatus   @default(placed)
+  paymentMethod   PaymentMethod @default(cod)
+  subtotal        Int
+  discount        Int           @default(0)
+  shippingFee     Int           @default(0)
+  total           Int
+  couponCode      String?       @db.VarChar(32)
+  shippingAddress Json
+  cancelledAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user  User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items OrderItem[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String  @id @default(uuid(7)) @db.Char(36)
+  orderId   String  @db.Char(36)
+  productId String  @db.VarChar(64)
+  name      String  @db.VarChar(150)
+  image     String? @db.VarChar(500)
+  price     Int
+  qty       Int
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// ---------------------------------------------------------------- calls and meetings history
+// Written by call-backend through the /internal endpoints. People are identified by mobile number, the same id the
+// call server uses. A meeting or conference has one row per person who took part (callerMobile = that person).
+
+model CallLog {
+  id           String    @id @default(uuid(7)) @db.Char(36)
+  externalId   String?   @unique @db.VarChar(64) // the call server's own id, so a retry never saves a call twice
+  kind         CallKind
+  callerMobile String    @db.VarChar(15)
+  calleeMobile String?   @db.VarChar(15) // null for a meeting or conference
+  meetingId    String?   @db.VarChar(32)
+  title        String?   @db.VarChar(120)
+  outcome      String    @db.VarChar(20) // completed | missed | declined | no-answer | cancelled | failed
+  startedAt    DateTime
+  endedAt      DateTime?
+  durationSec  Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  @@index([callerMobile, startedAt])
+  @@index([calleeMobile, startedAt])
+  @@index([meetingId])
+  @@map("call_logs")
+}
+
+model MeetingMessage {
+  id         String   @id @default(uuid(7)) @db.Char(36)
+  externalId String?  @unique @db.VarChar(64)
+  meetingId  String   @db.VarChar(32)
+  fromMobile String   @db.VarChar(15)
+  fromName   String   @db.VarChar(100)
+  toMobile   String?  @db.VarChar(15) // null = sent to everyone in the meeting
+  text       String   @db.VarChar(1000)
+  sentAt     DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([meetingId, sentAt])
+  @@index([fromMobile])
+  @@index([toMobile])
+  @@map("meeting_messages")
+}
+
+// ---------------------------------------------------------------- doctor consultation
+
+model Clinic {
+  id        String   @id @db.VarChar(64) // readable slug, e.g. "karol-bagh"
+  name      String   @db.VarChar(150)
+  area      String   @db.VarChar(100)
+  city      String   @db.VarChar(80)
+  state     String   @db.VarChar(80)
+  pincode   String?  @db.VarChar(6)
+  address   String?  @db.VarChar(300)
+  phone     String?  @db.VarChar(20)
+  timings   String?  @db.VarChar(120)
+  lat       Float
+  lng       Float
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  doctors Doctor[]
+
+  @@index([city])
+  @@map("clinics")
+}
+
+model Doctor {
+  id              String   @id @db.VarChar(64)
+  // The login of the doctor (a user with role Doctor), when the doctor uses the app themself
+  userId          String?  @unique @db.Char(36)
+  clinicId        String?  @db.VarChar(64)
+  name            String   @db.VarChar(120)
+  photoUrl        String?  @db.VarChar(500)
+  system          String?  @db.VarChar(30) // medical system, e.g. "Unani" or "Ayurveda"
+  specialization  String   @db.VarChar(100)
+  concerns        Json? // health concerns the doctor treats, shown as filter chips: ["Gut Health", "Acidity"]
+  qualifications  String?  @db.VarChar(200)
+  experienceYears Int      @default(0)
+  languages       String?  @db.VarChar(120)
+  bio             String?  @db.Text
+  fee             Int // whole rupees; payment is not taken in the app yet
+  rating          Float    @default(0)
+  reviewCount     Int      @default(0)
+  modes           Json // which consultations: ["text","audio","video","clinic"]
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  clinic       Clinic?          @relation(fields: [clinicId], references: [id], onDelete: SetNull)
+  schedules    DoctorSchedule[]
+  appointments Appointment[]
+
+  @@index([specialization])
+  @@index([clinicId])
+  @@map("doctors")
+}
+
+// Weekly timetable. Free slots are worked out from it (and the booked appointments), in Indian time.
+model DoctorSchedule {
+  id          Int    @id @default(autoincrement())
+  doctorId    String @db.VarChar(64)
+  weekday     Int // 0 = Sunday ... 6 = Saturday
+  startTime   String @db.VarChar(5) // "10:00"
+  endTime     String @db.VarChar(5) // "13:00"
+  slotMinutes Int    @default(20)
+
+  doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId, weekday])
+  @@map("doctor_schedules")
+}
+
+model Appointment {
+  id            String            @id @default(uuid(7)) @db.Char(36)
+  number        String            @unique @db.VarChar(24)
+  userId        String?           @db.Char(36)
+  doctorId      String            @db.VarChar(64)
+  clinicId      String?           @db.VarChar(64)
+  type          ConsultType
+  startsAt      DateTime? // null while the clinic has not fixed a time yet (status requested)
+  endsAt        DateTime?
+  status        AppointmentStatus @default(booked)
+  // "<doctorId>|<start time>" while the booking is active, null once cancelled. Unique, so the database itself
+  // refuses a second booking of the same slot even if two people press the button at the same moment.
+  slotKey       String?           @unique @db.VarChar(100)
+  patientName   String            @db.VarChar(100)
+  patientMobile String            @db.VarChar(15)
+  preferredDate String?           @db.VarChar(10) // "YYYY-MM-DD", when the person has a day in mind
+  forSelf       Boolean           @default(true)
+  city          String?           @db.VarChar(80)
+  concern       String?           @db.VarChar(200)
+  duration      String?           @db.VarChar(30) // how long the problem has been there
+  creditsUsed   Int               @default(0)
+  adminNote     String?           @db.VarChar(500) // staff note, never shown to the patient
+  cancelReason  String?           @db.VarChar(200)
+  completedAt   DateTime?
+  reason        String?           @db.VarChar(500)
+  fee           Int // copied from the doctor when booked
+  paymentStatus String            @default("pay_later") @db.VarChar(20) // online payment comes later
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  doctor Doctor @relation(fields: [doctorId], references: [id])
+
+  @@index([userId, startsAt])
+  @@index([doctorId, startsAt])
+  @@map("appointments")
+}
+
+// Every change of a person's credits, so the balance can always be explained
+model CreditEntry {
+  id            Int      @id @default(autoincrement())
+  userId        String   @db.Char(36)
+  delta         Int // + earned or refunded, - used
+  reason        String   @db.VarChar(60)
+  appointmentId String?  @db.Char(36)
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("credit_ledger")
+}
+
+// ---------------------------------------------------------------- consultation videos
+// The video FILE lives in the server's private video folder (see videos/storage.js), never inside MySQL. This table
+// holds what is known about it. Patient and doctor names are copied here so a video can still be found, and its
+// history read, after an account is deleted.
+
+enum VideoStatus {
+  uploading
+  uploaded
+  failed
+}
+
+model ConsultVideo {
+  id                String      @id @default(uuid(7)) @db.Char(36)
+  appointmentId     String      @db.Char(36)
+  appointmentNumber String      @db.VarChar(24)
+  doctorId          String      @db.VarChar(64)
+  doctorName        String      @db.VarChar(120)
+  userId            String?     @db.Char(36) // the patient's account (null once it is deleted)
+  patientName       String      @db.VarChar(100)
+  patientMobile     String      @db.VarChar(15)
+  fileName          String?     @db.VarChar(80) // the name of the file in the video folder
+  mimeType          String      @db.VarChar(40)
+  sizeBytes         Int?
+  durationSec       Int?
+  status            VideoStatus @default(uploading)
+  failedReason      String?     @db.VarChar(200)
+  consentAt         DateTime? // when the doctor confirmed that the patient agreed
+  consentByUserId   String?     @db.Char(36)
+  uploadedAt        DateTime?
+  legalHold         Boolean     @default(false) // a held video is never deleted by the archive policy
+  deletedAt         DateTime? // set when the archive policy removed the file
+  createdAt         DateTime    @default(now())
+
+  @@index([appointmentId])
+  @@index([patientMobile])
+  @@index([doctorId, createdAt])
+  @@index([status])
+  @@map("consult_videos")
+}
+
+// Who uploaded, played or downloaded a video, and when
+model VideoAudit {
+  id        Int      @id @default(autoincrement())
+  videoId   String   @db.Char(36)
+  userId    String?  @db.Char(36)
+  action    String   @db.VarChar(20) // upload | play | download | hold | delete
+  ip        String?  @db.VarChar(64)
+  createdAt DateTime @default(now())
+
+  @@index([videoId])
+  @@map("video_audit")
 }

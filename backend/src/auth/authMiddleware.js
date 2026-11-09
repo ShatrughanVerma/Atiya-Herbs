@@ -1,5 +1,5 @@
 const {forbidden, unauthorized} = require('../common/errors');
-const {ROLES} = require('./roles');
+const {roleNameOf} = require('./roles');
 
 // requireAuth: put on any route that needs a logged-in user. The user id comes only from the signed token,
 // never from anything the client sends in the body or URL. Sets req.user = {id, role}.
@@ -12,10 +12,11 @@ function createAuthMiddleware({tokens}) {
     }
     try {
       const payload = tokens.verifyAccessToken(token);
-      if (!payload.sub || !ROLES.includes(payload.role)) {
+      const role = roleNameOf(payload.roleId);
+      if (!payload.sub || !role) {
         throw new Error('bad claims');
       }
-      req.user = {id: payload.sub, role: payload.role};
+      req.user = {id: payload.sub, role, roleId: payload.roleId};
       return next();
     } catch {
       return next(unauthorized('Your session has expired. Please log in again.'));

@@ -1,6 +1,7 @@
+import {PRODUCTS} from '../src/data/catalog'; // only a list of products to match against in this test
 import {matchProduct} from '../src/utils/voiceSearch';
 
-const idOf = phrases => matchProduct(phrases)?.id ?? null;
+const idOf = phrases => matchProduct(phrases, PRODUCTS)?.id ?? null;
 
 test('matches a spoken product name', () => {
   expect(idOf(['pain relief oil'])).toBe('pain-relief-oil');

@@ -4,7 +4,7 @@ const KEY = 'atiya.session.v1';
 
 // AsyncStorage is plain, unencrypted storage, so only the customer's profile is kept here.
 // Passwords and login tokens must never go in it (tokens belong in the Android Keystore, e.g. react-native-keychain).
-const PROFILE_FIELDS = ['name', 'email', 'mobile', 'gender', 'photo', 'provider'];
+const PROFILE_FIELDS = ['name', 'email', 'mobile', 'gender', 'photo', 'provider', 'role'];
 
 const pickProfile = data => {
   const profile = {};

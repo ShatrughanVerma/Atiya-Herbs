@@ -2,6 +2,7 @@ const request = require('supertest');
 const {createApp} = require('../../src/app');
 const {loadConfig} = require('../../src/config/env');
 const {createFakePrisma} = require('./fakePrisma');
+const {ROLE_IDS} = require('../../src/auth/roles');
 
 const silent = {info() {}, warn() {}, error() {}};
 
@@ -33,7 +34,16 @@ function buildTestApp(envOverrides = {}, {prisma = createFakePrisma(), logger = 
     return res.body;
   };
 
-  return {app, prisma, config, sent, lastCode, login};
+  // Logs in as a person with the given role (the role is set in the database, then a fresh login picks it up)
+  const loginAs = async (role, mobile = '9876543210') => {
+    await login(mobile);
+    const row = prisma.user.rows.find(user => user.mobile === mobile);
+    row.roleId = ROLE_IDS[role];
+    return login(mobile);
+  };
+  const bearer = session => ({Authorization: `Bearer ${session.accessToken}`});
+
+  return {app, prisma, config, sent, lastCode, login, loginAs, bearer};
 }
 
 module.exports = {buildTestApp, BASE_ENV, silent};

@@ -1,11 +1,13 @@
 import React, {useState} from 'react';
-import {Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
+import {ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import {CatalogUnavailable} from '../components/shop/CatalogStatus';
 import EmptyState from '../components/shop/EmptyState';
 import ProductImage from '../components/shop/ProductImage';
 import QuantityStepper from '../components/shop/QuantityStepper';
 import {useCart} from '../context/CartContext';
+import {useCatalog} from '../context/CatalogContext';
 import {colors, formatPrice, spacing} from '../theme';
 
 export function BillDetails({mrpTotal, subtotal, couponDiscount, coupon, total}) {
@@ -47,21 +49,62 @@ export function BillDetails({mrpTotal, subtotal, couponDiscount, coupon, total})
 
 export default function CartScreen({navigation}) {
   const cart = useCart();
-  const {lines, count, coupon, total, setQty, toggleWishlist, isWishlisted, applyCoupon, removeCoupon} = cart;
+  const {lines, count, coupon, total, setQty, toggleWishlist, isWishlisted, applyCoupon, removeCoupon, loggedIn, cartLoading, cartError, refreshCart, hasBlocking} = cart;
+  const {ready} = useCatalog();
   const [code, setCode] = useState('');
   const [couponError, setCouponError] = useState('');
+  const [applying, setApplying] = useState(false);
 
-  const onApply = () => {
-    if (!code.trim()) {
+  const onApply = async () => {
+    if (!code.trim() || applying) {
       return;
     }
-    if (applyCoupon(code)) {
+    setApplying(true);
+    const result = await applyCoupon(code);
+    setApplying(false);
+    if (result.ok) {
       setCouponError('');
       setCode('');
     } else {
-      setCouponError('This coupon code is not valid');
+      setCouponError(result.message);
     }
   };
+
+  // A guest's cart is only worth what the shop's prices say, and those come from the server
+  if (!loggedIn && !ready) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <Text style={styles.screenTitle}>My Cart</Text>
+        <CatalogUnavailable />
+      </SafeAreaView>
+    );
+  }
+
+  if (lines.length === 0 && cartLoading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <Text style={styles.screenTitle}>My Cart</Text>
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} size="large" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (lines.length === 0 && cartError) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <Text style={styles.screenTitle}>My Cart</Text>
+        <EmptyState
+          icon="cloud-off-outline"
+          title="Could not load your cart"
+          note={cartError}
+          actionLabel="Retry"
+          onAction={refreshCart}
+        />
+      </SafeAreaView>
+    );
+  }
 
   if (lines.length === 0) {
     return (
@@ -90,7 +133,7 @@ export default function CartScreen({navigation}) {
           <Text style={styles.freeText}>Yay! You get FREE delivery on this order</Text>
         </View>
 
-        {lines.map(({product, qty}) => (
+        {lines.map(({product, qty, issue, available}) => (
           <View key={product.id} style={styles.item}>
             <Pressable onPress={() => navigation.navigate('ProductDetail', {id: product.id})}>
               <ProductImage uri={product.image} style={styles.itemImage} iconSize={28} />
@@ -100,12 +143,19 @@ export default function CartScreen({navigation}) {
                 {product.name}
               </Text>
               <Text style={styles.itemSize}>{product.size}</Text>
-              <View style={styles.itemPriceRow}>
-                <Text style={styles.itemPrice}>{formatPrice(product.price * qty)}</Text>
-                {product.mrp > product.price && (
-                  <Text style={styles.itemMrp}>{formatPrice(product.mrp * qty)}</Text>
-                )}
-              </View>
+              {issue === 'out-of-stock' || issue === 'unavailable' ? (
+                <Text style={styles.itemIssue}>
+                  {issue === 'out-of-stock' ? 'Out of stock' : 'No longer available'} · remove it to continue
+                </Text>
+              ) : (
+                <View style={styles.itemPriceRow}>
+                  <Text style={styles.itemPrice}>{formatPrice(product.price * qty)}</Text>
+                  {product.mrp > product.price && (
+                    <Text style={styles.itemMrp}>{formatPrice(product.mrp * qty)}</Text>
+                  )}
+                </View>
+              )}
+              {issue === 'limited' && <Text style={styles.itemIssue}>Only {available} left</Text>}
               <View style={styles.itemActions}>
                 <QuantityStepper small qty={qty} onChange={n => setQty(product.id, n)} />
                 <Pressable
@@ -150,12 +200,11 @@ export default function CartScreen({navigation}) {
                     setCouponError('');
                   }}
                 />
-                <Pressable onPress={onApply} hitSlop={8}>
-                  <Text style={styles.couponApply}>Apply</Text>
+                <Pressable onPress={onApply} hitSlop={8} disabled={applying}>
+                  {applying ? <ActivityIndicator size="small" color={colors.primary} /> : <Text style={styles.couponApply}>Apply</Text>}
                 </Pressable>
               </View>
               {!!couponError && <Text style={styles.couponError}>{couponError}</Text>}
-              <Text style={styles.couponHint}>Try ATIYA10 or APP5</Text>
             </>
           )}
         </View>
@@ -168,8 +217,12 @@ export default function CartScreen({navigation}) {
           <Text style={styles.barTotal}>{formatPrice(total)}</Text>
           <Text style={styles.barNote}>Total payable</Text>
         </View>
-        <Pressable style={styles.checkoutBtn} onPress={() => navigation.navigate('Checkout')}>
-          <Text style={styles.checkoutText}>Checkout</Text>
+        <Pressable
+          style={[styles.checkoutBtn, hasBlocking && styles.checkoutBtnOff]}
+          disabled={hasBlocking}
+          accessibilityState={{disabled: hasBlocking}}
+          onPress={() => navigation.navigate('Checkout')}>
+          <Text style={styles.checkoutText}>{hasBlocking ? 'Remove unavailable items' : 'Checkout'}</Text>
           <Icon name="arrow-right" size={20} color="#fff" />
         </Pressable>
       </View>
@@ -188,6 +241,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   screenCount: {fontSize: 14, fontWeight: '500', color: colors.muted},
+  center: {flex: 1, alignItems: 'center', justifyContent: 'center'},
+  itemIssue: {color: colors.danger, fontSize: 12, fontWeight: '600', marginTop: 6},
+  checkoutBtnOff: {opacity: 0.5},
   scroll: {padding: spacing.md, paddingBottom: spacing.lg},
   freeStrip: {
     flexDirection: 'row',

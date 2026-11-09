@@ -137,8 +137,9 @@ describe('start-up configuration', () => {
     const production = {...base, NODE_ENV: 'production'};
     expect(() => loadConfig(production)).toThrow(/OTP_SENDER=dev/);
     expect(() => loadConfig({...production, OTP_SENDER: 'sms', OTP_DEV_ECHO: 'true'})).toThrow(/OTP_DEV_ECHO/);
-    expect(() => loadConfig({...production, OTP_SENDER: 'sms', DB_ENCRYPT: 'false'})).toThrow(/DB_ENCRYPT/);
-    expect(() => loadConfig({...production, OTP_SENDER: 'sms', DB_TRUST_SERVER_CERT: 'true'})).toThrow(/DB_TRUST_SERVER_CERT/);
+    // a database on another machine must be reached over an encrypted connection
+    expect(() => loadConfig({...production, OTP_SENDER: 'sms', DB_HOST: 'db.example.com'})).toThrow(/DB_SSL/);
+    expect(loadConfig({...production, OTP_SENDER: 'sms', DB_HOST: 'db.example.com', DB_SSL: 'true'}).DB_SSL).toBe(true);
     expect(loadConfig({...production, OTP_SENDER: 'sms'}).isProduction).toBe(true);
   });
 

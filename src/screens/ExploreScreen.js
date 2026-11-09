@@ -3,14 +3,26 @@ import {Image, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import FilterSheet from '../components/shop/FilterSheet';
-import {CATEGORIES, CONCERNS, PRODUCTS} from '../data/catalog';
+import {CatalogUnavailable, OfflineBanner} from '../components/shop/CatalogStatus';
+import {useCatalog} from '../context/CatalogContext';
 import {colors, spacing} from '../theme';
 
 export default function ExploreScreen({navigation}) {
   const [filterOpen, setFilterOpen] = useState(false);
+  const {ready, products: PRODUCTS, categories: CATEGORIES, concerns: CONCERNS} = useCatalog();
+
+  if (!ready) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <Text style={styles.title}>Explore</Text>
+        <CatalogUnavailable />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      <OfflineBanner />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Explore</Text>
 

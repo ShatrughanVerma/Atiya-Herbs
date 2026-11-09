@@ -19,7 +19,11 @@ import {
   listen,
   matchProduct,
 } from '../utils/voiceSearch';
-import { BANNERS, CATEGORIES, CONCERNS, PRODUCTS } from '../data/catalog';
+import {
+  CatalogUnavailable,
+  OfflineBanner,
+} from '../components/shop/CatalogStatus';
+import { useCatalog } from '../context/CatalogContext';
 import { colors, spacing } from '../theme';
 
 const ANNOUNCEMENTS = [
@@ -28,19 +32,14 @@ const ANNOUNCEMENTS = [
   'Free delivery across India (4–7 days)',
 ];
 
-const BEST_SELLER_TABS = [
-  { id: 'all', name: 'Best Sellers' },
-  ...['joint-pain', 'back-pain', 'hair', 'gut-health', 'skin', 'diabetes'].map(
-    id => CONCERNS.find(c => c.id === id),
-  ),
+const BEST_SELLER_CONCERNS = [
+  'joint-pain',
+  'back-pain',
+  'hair',
+  'gut-health',
+  'skin',
+  'diabetes',
 ];
-
-const productsForTab = tabId =>
-  tabId === 'all'
-    ? PRODUCTS.filter(p => p.bestseller)
-    : PRODUCTS.filter(p => p.concerns.includes(tabId));
-const FEATURED = PRODUCTS.filter(p => !p.bestseller && p.inStock).slice(0, 4);
-const CAROUSEL_ITEMS = BANNERS;
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -73,11 +72,24 @@ const QUICK_ACTIONS = [
 
 export default function HomeScreen({ navigation }) {
   const { count } = useCart();
+  // Everything about products comes from the server (or its saved copy); nothing is made up here
+  const { ready, products, banners, categories, concerns } = useCatalog();
+  const CAROUSEL_ITEMS = banners;
+  const BEST_SELLER_TABS = [
+    { id: 'all', name: 'Best Sellers' },
+    ...BEST_SELLER_CONCERNS.map(id => concerns.find(c => c.id === id)).filter(
+      Boolean,
+    ),
+  ];
+  const FEATURED = products.filter(p => !p.bestseller && p.inStock).slice(0, 4);
   const [activeIndex, setActiveIndex] = useState(0);
   const [announcementIndex, setAnnouncementIndex] = useState(0);
   const [bestSellerTab, setBestSellerTab] = useState('all');
   const scrollViewRef = useRef(null);
-  const tabProducts = productsForTab(bestSellerTab);
+  const tabProducts =
+    bestSellerTab === 'all'
+      ? products.filter(p => p.bestseller)
+      : products.filter(p => p.concerns.includes(bestSellerTab));
 
   useEffect(() => {
     const timer = setInterval(
@@ -88,9 +100,12 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   useEffect(() => {
+    if (banners.length === 0) {
+      return undefined;
+    }
     const timer = setInterval(() => {
       setActiveIndex(prevIndex => {
-        const nextIndex = (prevIndex + 1) % CAROUSEL_ITEMS.length;
+        const nextIndex = (prevIndex + 1) % banners.length;
         if (scrollViewRef.current) {
           scrollViewRef.current.scrollTo({
             x: nextIndex * (SCREEN_WIDTH - spacing.md * 2),
@@ -102,7 +117,7 @@ export default function HomeScreen({ navigation }) {
     }, 4000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [banners.length]);
 
   const onVoiceSearch = async () => {
     if (!isVoiceSearchAvailable) {
@@ -114,7 +129,7 @@ export default function HomeScreen({ navigation }) {
       if (phrases.length === 0) {
         return; // cancelled or nothing heard
       }
-      const product = matchProduct(phrases);
+      const product = matchProduct(phrases, products);
       if (product) {
         navigation.navigate('ProductDetail', { id: product.id });
       } else {
@@ -182,6 +197,7 @@ export default function HomeScreen({ navigation }) {
           </Pressable>
         </View>
       </View>
+      <OfflineBanner />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -215,63 +231,70 @@ export default function HomeScreen({ navigation }) {
           </Pressable>
         </View>
 
-        {/* 3-Card Carousel Banner */}
-        <View style={styles.carouselContainer}>
-          <ScrollView
-            ref={scrollViewRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-          >
-            {CAROUSEL_ITEMS.map(item => (
-              <View
-                key={item.id}
-                style={[
-                  styles.heroBanner,
-                  { width: SCREEN_WIDTH - spacing.md * 2 },
-                  item.gradient && { backgroundImage: item.gradient },
-                ]}
-              >
-                <View style={styles.heroTextContainer}>
-                  <Text style={styles.heroBadge}>{item.badge}</Text>
-                  <Text style={styles.heroTitle}>{item.title}</Text>
-                  <Pressable
-                    style={styles.heroBtn}
-                    onPress={() =>
-                      navigation.navigate(
-                        'ProductList',
-                        item.concern
-                          ? { title: item.badge, concern: item.concern }
-                          : item.category
-                          ? { title: item.badge, category: item.category }
-                          : { title: 'All Products' },
-                      )
-                    }
-                  >
-                    <Text style={styles.heroBtnText}>Shop Now</Text>
-                  </Pressable>
+        {/* Banners from the server */}
+        {CAROUSEL_ITEMS.length > 0 && (
+          <View style={styles.carouselContainer}>
+            <ScrollView
+              ref={scrollViewRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+            >
+              {CAROUSEL_ITEMS.map(item => (
+                <View
+                  key={item.id}
+                  style={[
+                    styles.heroBanner,
+                    { width: SCREEN_WIDTH - spacing.md * 2 },
+                    item.gradient && { backgroundImage: item.gradient },
+                  ]}
+                >
+                  <View style={styles.heroTextContainer}>
+                    <Text style={styles.heroBadge}>{item.badge}</Text>
+                    <Text style={styles.heroTitle}>{item.title}</Text>
+                    <Pressable
+                      style={styles.heroBtn}
+                      onPress={() =>
+                        navigation.navigate(
+                          'ProductList',
+                          item.concern
+                            ? { title: item.badge, concern: item.concern }
+                            : item.category
+                            ? { title: item.badge, category: item.category }
+                            : { title: 'All Products' },
+                        )
+                      }
+                    >
+                      <Text style={styles.heroBtnText}>Shop Now</Text>
+                    </Pressable>
+                  </View>
+                  {!!item.image && (
+                    <Image
+                      source={item.image}
+                      style={styles.heroImage}
+                      resizeMode="cover"
+                    />
+                  )}
                 </View>
-                <Image
-                  source={item.image}
-                  style={styles.heroImage}
-                  resizeMode="cover"
-                />
-              </View>
-            ))}
-          </ScrollView>
+              ))}
+            </ScrollView>
 
-          {/* Pagination Dots */}
-          <View style={styles.dotsContainer}>
-            {CAROUSEL_ITEMS.map((_, index) => (
-              <View
-                key={index}
-                style={[styles.dot, activeIndex === index && styles.activeDot]}
-              />
-            ))}
+            {/* Pagination Dots */}
+            <View style={styles.dotsContainer}>
+              {CAROUSEL_ITEMS.map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.dot,
+                    activeIndex === index && styles.activeDot,
+                  ]}
+                />
+              ))}
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Quick Action Buttons */}
         <View style={styles.quickActionsRow}>
@@ -362,147 +385,157 @@ export default function HomeScreen({ navigation }) {
           </Pressable>
         </View>
 
-        {/* Categories */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Categories</Text>
-          <Pressable onPress={() => navigation.navigate('Explore')}>
-            <Text style={styles.seeAll}>See All</Text>
-          </Pressable>
-        </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.categoriesScroll}
-        >
-          {CATEGORIES.map(cat => (
-            <Pressable
-              key={cat.id}
-              style={styles.categoryItem}
-              onPress={() =>
-                navigation.navigate('ProductList', {
-                  title: cat.name,
-                  category: cat.id,
-                })
-              }
+        {ready ? (
+          <>
+            {/* Categories */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Categories</Text>
+              <Pressable onPress={() => navigation.navigate('Explore')}>
+                <Text style={styles.seeAll}>See All</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.categoriesScroll}
             >
-              <View style={styles.categoryCircle}>
-                <Icon name={cat.icon} size={26} color={colors.primary} />
-              </View>
-              <Text style={styles.categoryText} numberOfLines={1}>
-                {cat.name}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        {/* Shop by Concern */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Shop by Concern</Text>
-        </View>
-        <View style={styles.concernGrid}>
-          {CONCERNS.map(c => (
-            <Pressable
-              key={c.id}
-              style={styles.concernItem}
-              onPress={() =>
-                navigation.navigate('ProductList', {
-                  title: c.name,
-                  concern: c.id,
-                })
-              }
-            >
-              <View style={[styles.concernCircle, { backgroundColor: c.tint }]}>
-                <Icon name={c.icon} size={28} color={colors.primary} />
-              </View>
-              <Text style={styles.concernText} numberOfLines={1}>
-                {c.name}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Best Sellers with concern tabs */}
-        <View style={styles.band}>
-          <View style={styles.bandHeader}>
-            <Text style={styles.bandTitle}>Our Best Sellers</Text>
-            <Pressable
-              onPress={() => {
-                const tab = BEST_SELLER_TABS.find(t => t.id === bestSellerTab);
-                navigation.navigate(
-                  'ProductList',
-                  tab.id === 'all'
-                    ? { title: 'Best Sellers', bestseller: true }
-                    : { title: tab.name, concern: tab.id },
-                );
-              }}
-            >
-              <Text style={styles.seeAll}>View All</Text>
-            </Pressable>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabs}
-          >
-            {BEST_SELLER_TABS.map(tab => {
-              const active = tab.id === bestSellerTab;
-              return (
+              {categories.map(cat => (
                 <Pressable
-                  key={tab.id}
-                  style={[styles.tab, active && styles.tabActive]}
-                  onPress={() => setBestSellerTab(tab.id)}
+                  key={cat.id}
+                  style={styles.categoryItem}
+                  onPress={() =>
+                    navigation.navigate('ProductList', {
+                      title: cat.name,
+                      category: cat.id,
+                    })
+                  }
                 >
-                  <Text
-                    style={[styles.tabText, active && styles.tabTextActive]}
-                  >
-                    {tab.name}
+                  <View style={styles.categoryCircle}>
+                    <Icon name={cat.icon} size={26} color={colors.primary} />
+                  </View>
+                  <Text style={styles.categoryText} numberOfLines={1}>
+                    {cat.name}
                   </Text>
                 </Pressable>
-              );
-            })}
-          </ScrollView>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.bandProducts}
-          >
-            {tabProducts.map(product => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                style={styles.bestSellerCard}
+              ))}
+            </ScrollView>
+
+            {/* Shop by Concern */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Shop by Concern</Text>
+            </View>
+            <View style={styles.concernGrid}>
+              {concerns.map(c => (
+                <Pressable
+                  key={c.id}
+                  style={styles.concernItem}
+                  onPress={() =>
+                    navigation.navigate('ProductList', {
+                      title: c.name,
+                      concern: c.id,
+                    })
+                  }
+                >
+                  <View
+                    style={[styles.concernCircle, { backgroundColor: c.tint }]}
+                  >
+                    <Icon name={c.icon} size={28} color={colors.primary} />
+                  </View>
+                  <Text style={styles.concernText} numberOfLines={1}>
+                    {c.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* Best Sellers with concern tabs */}
+            <View style={styles.band}>
+              <View style={styles.bandHeader}>
+                <Text style={styles.bandTitle}>Our Best Sellers</Text>
+                <Pressable
+                  onPress={() => {
+                    const tab = BEST_SELLER_TABS.find(
+                      t => t.id === bestSellerTab,
+                    );
+                    navigation.navigate(
+                      'ProductList',
+                      tab.id === 'all'
+                        ? { title: 'Best Sellers', bestseller: true }
+                        : { title: tab.name, concern: tab.id },
+                    );
+                  }}
+                >
+                  <Text style={styles.seeAll}>View All</Text>
+                </Pressable>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.tabs}
+              >
+                {BEST_SELLER_TABS.map(tab => {
+                  const active = tab.id === bestSellerTab;
+                  return (
+                    <Pressable
+                      key={tab.id}
+                      style={[styles.tab, active && styles.tabActive]}
+                      onPress={() => setBestSellerTab(tab.id)}
+                    >
+                      <Text
+                        style={[styles.tabText, active && styles.tabTextActive]}
+                      >
+                        {tab.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.bandProducts}
+              >
+                {tabProducts.map(product => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    style={styles.bestSellerCard}
+                    onPress={() =>
+                      navigation.navigate('ProductDetail', { id: product.id })
+                    }
+                  />
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* Featured Products */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Featured Products</Text>
+              <Pressable
                 onPress={() =>
-                  navigation.navigate('ProductDetail', { id: product.id })
+                  navigation.navigate('ProductList', { title: 'All Products' })
                 }
-              />
-            ))}
-          </ScrollView>
-        </View>
+              >
+                <Text style={styles.seeAll}>See All</Text>
+              </Pressable>
+            </View>
 
-        {/* Featured Products */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Featured Products</Text>
-          <Pressable
-            onPress={() =>
-              navigation.navigate('ProductList', { title: 'All Products' })
-            }
-          >
-            <Text style={styles.seeAll}>See All</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.productsGrid}>
-          {FEATURED.map(product => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              style={styles.productCard}
-              onPress={() =>
-                navigation.navigate('ProductDetail', { id: product.id })
-              }
-            />
-          ))}
-        </View>
+            <View style={styles.productsGrid}>
+              {FEATURED.map(product => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  style={styles.productCard}
+                  onPress={() =>
+                    navigation.navigate('ProductDetail', { id: product.id })
+                  }
+                />
+              ))}
+            </View>
+          </>
+        ) : (
+          <CatalogUnavailable compact />
+        )}
 
         {/* Brand legacy */}
         <View style={styles.legacy}>

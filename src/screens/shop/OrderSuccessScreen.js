@@ -27,7 +27,7 @@ export default function OrderSuccessScreen({navigation, route}) {
           <View style={styles.card}>
             <View style={styles.row}>
               <Text style={styles.label}>Order ID</Text>
-              <Text style={styles.value}>#{order.id}</Text>
+              <Text style={styles.value}>#{order.orderNumber}</Text>
             </View>
             <View style={styles.row}>
               <Text style={styles.label}>Amount</Text>
@@ -35,7 +35,7 @@ export default function OrderSuccessScreen({navigation, route}) {
             </View>
             <View style={styles.row}>
               <Text style={styles.label}>Payment</Text>
-              <Text style={styles.value}>{order.paymentMethod.title}</Text>
+              <Text style={styles.value}>Cash on Delivery</Text>
             </View>
             <View style={styles.row}>
               <Text style={styles.label}>Expected delivery</Text>

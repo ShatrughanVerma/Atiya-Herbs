@@ -1,5 +1,5 @@
-import React from 'react';
-import {FlatList, StyleSheet, Text, View} from 'react-native';
+import React, {useEffect} from 'react';
+import {ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import EmptyState from '../../components/shop/EmptyState';
@@ -8,13 +8,16 @@ import ScreenHeader from '../../components/shop/ScreenHeader';
 import {useCart} from '../../context/CartContext';
 import {colors, formatPrice, spacing} from '../../theme';
 
-const STEPS = ['Placed', 'Packed', 'Shipped', 'Delivered'];
+// What the server calls each stage, and what the person reads
+const STAGES = ['placed', 'confirmed', 'shipped', 'delivered'];
+const STEPS = ['Placed', 'Confirmed', 'Shipped', 'Delivered'];
+const CANCELLABLE = ['placed', 'confirmed'];
 
 const formatDate = iso =>
   new Date(iso).toLocaleDateString('en-IN', {day: 'numeric', month: 'short', year: 'numeric'});
 
 function Timeline({status}) {
-  const current = STEPS.indexOf(status);
+  const current = STAGES.indexOf(status);
   return (
     <View style={styles.timeline}>
       {STEPS.map((step, i) => {
@@ -36,7 +39,71 @@ function Timeline({status}) {
 }
 
 export default function OrdersScreen({navigation}) {
-  const {orders} = useCart();
+  const {orders, ordersStatus, refreshOrders, cancelOrder, loggedIn} = useCart();
+
+  useEffect(() => {
+    if (loggedIn) {
+      refreshOrders();
+    }
+  }, [loggedIn, refreshOrders]);
+
+  const onCancel = order =>
+    Alert.alert('Cancel order', `Cancel order #${order.orderNumber}?`, [
+      {text: 'Keep it', style: 'cancel'},
+      {
+        text: 'Cancel order',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await cancelOrder(order.id);
+          } catch (error) {
+            Alert.alert('Order', error.message);
+            refreshOrders();
+          }
+        },
+      },
+    ]);
+
+  if (!loggedIn) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <ScreenHeader title="My Orders" navigation={navigation} />
+        <EmptyState
+          icon="account-lock-outline"
+          title="Log in to see your orders"
+          note="Your orders are saved with your account."
+          actionLabel="Log in"
+          onAction={() => navigation.navigate('Login')}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (orders.length === 0 && ordersStatus === 'loading') {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <ScreenHeader title="My Orders" navigation={navigation} />
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} size="large" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (orders.length === 0 && ordersStatus === 'error') {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <ScreenHeader title="My Orders" navigation={navigation} />
+        <EmptyState
+          icon="cloud-off-outline"
+          title="Could not load your orders"
+          note="Please check your internet and try again."
+          actionLabel="Retry"
+          onAction={refreshOrders}
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -58,30 +125,41 @@ export default function OrdersScreen({navigation}) {
           <View style={styles.card}>
             <View style={styles.head}>
               <View>
-                <Text style={styles.orderId}>Order #{order.id}</Text>
-                <Text style={styles.date}>{formatDate(order.date)}</Text>
+                <Text style={styles.orderId}>Order #{order.orderNumber}</Text>
+                <Text style={styles.date}>{formatDate(order.createdAt)}</Text>
               </View>
               <View style={styles.status}>
-                <Text style={styles.statusText}>{order.status}</Text>
+                <Text style={styles.statusText}>
+                  {order.status === 'cancelled' ? 'Cancelled' : STEPS[STAGES.indexOf(order.status)]}
+                </Text>
               </View>
             </View>
 
-            {order.lines.map(({product, qty}) => (
-              <View key={product.id} style={styles.line}>
-                <ProductImage uri={product.image} style={styles.thumb} iconSize={18} />
+            {order.items.map(({productId, name, image, qty}) => (
+              <View key={productId} style={styles.line}>
+                <ProductImage uri={image} style={styles.thumb} iconSize={18} />
                 <Text style={styles.lineName} numberOfLines={1}>
-                  {product.name}
+                  {name}
                 </Text>
                 <Text style={styles.lineQty}>× {qty}</Text>
               </View>
             ))}
 
-            <Timeline status={order.status} />
+            {order.status !== 'cancelled' && <Timeline status={order.status} />}
 
             <View style={styles.foot}>
-              <Text style={styles.footLabel}>{order.paymentMethod.title}</Text>
+              <Text style={styles.footLabel}>Cash on Delivery</Text>
               <Text style={styles.total}>{formatPrice(order.total)}</Text>
             </View>
+            {CANCELLABLE.includes(order.status) && (
+              <Pressable
+                style={styles.cancelBtn}
+                onPress={() => onCancel(order)}
+                accessibilityRole="button"
+                accessibilityLabel={`Cancel order ${order.orderNumber}`}>
+                <Text style={styles.cancelText}>Cancel order</Text>
+              </Pressable>
+            )}
           </View>
         )}
       />
@@ -92,6 +170,9 @@ export default function OrdersScreen({navigation}) {
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: colors.card},
   list: {padding: spacing.md, flexGrow: 1},
+  center: {flex: 1, alignItems: 'center', justifyContent: 'center'},
+  cancelBtn: {alignSelf: 'flex-end', marginTop: 10, paddingVertical: 6, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: colors.danger},
+  cancelText: {color: colors.danger, fontWeight: '700', fontSize: 13},
   card: {
     backgroundColor: colors.background,
     borderRadius: 14,

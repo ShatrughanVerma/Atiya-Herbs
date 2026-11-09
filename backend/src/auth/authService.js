@@ -1,11 +1,35 @@
 const {randomUUID} = require('node:crypto');
 const {newOpaqueToken, sha256Hex} = require('../common/crypto');
-const {forbidden, unauthorized} = require('../common/errors');
-const {maskMobile} = require('../common/mobile');
+const {badRequest, conflict, forbidden, tooManyRequests, unauthorized} = require('../common/errors');
+const {maskMobile, normalizeMobile} = require('../common/mobile');
+const {hashPassword, passwordProblem, verifyAgainstDummy, verifyPassword} = require('./passwordService');
+const {roleNameOf} = require('./roles');
 
 const INVALID_SESSION = 'Your session has expired. Please log in again.';
+const WRONG_LOGIN = 'Wrong login details.';
+const MAX_FAILED_LOGINS = 5; // wrong passwords in a row ...
+const LOCK_MINUTES = 15; // ... lock the account for this long
 
-const toPublicUser = user => ({id: user.id, mobile: user.mobile, name: user.name, email: user.email, role: user.role});
+// For the security trail: enough to recognise the account, not enough to misuse it
+const maskEmail = email => {
+  const [local = '', domain = ''] = email.split('@');
+  return `${local.slice(0, 1)}***@${domain}`;
+};
+const maskIdentifier = identifier =>
+  identifier.includes('@') ? maskEmail(identifier.toLowerCase()) : maskMobile(identifier.replace(/\D/g, ''));
+
+// What to store after a wrong password: count it, and lock the account at the limit
+const failureUpdate = user => {
+  const failed = user.failedLoginCount + 1;
+  const lock = failed >= MAX_FAILED_LOGINS;
+  return {
+    lock,
+    data: lock ? {failedLoginCount: 0, lockedUntil: new Date(Date.now() + LOCK_MINUTES * 60_000)} : {failedLoginCount: failed},
+  };
+};
+const secondsLeft = user => (user.lockedUntil.getTime() - Date.now()) / 1000;
+
+const toPublicUser = user => ({id: user.id, mobile: user.mobile, name: user.name, email: user.email, roleId: user.roleId, role: roleNameOf(user.roleId)});
 
 // ctx everywhere below is {ip, userAgent}, taken from the request.
 function createAuthService({prisma, otp, tokens, audit, config}) {
@@ -63,6 +87,108 @@ function createAuthService({prisma, otp, tokens, audit, config}) {
 
       const session = await startSession(user, ctx, randomUUID(), deviceName);
       await audit.record({action: existing ? 'auth.login' : 'auth.signup', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent});
+      return session;
+    },
+
+    // New account with a mobile number, email and password. Nothing proves the number belongs to this person yet
+    // (there is no OTP step in this flow), so see the note in README.md before going live.
+    async register({name, email, mobile, password, deviceName}, ctx) {
+      const problem = passwordProblem(password, {mobile, email});
+      if (problem) {
+        throw badRequest('Some details are not valid.', [{field: 'password', message: problem}]);
+      }
+      const taken = await prisma.user.findFirst({where: {OR: [{mobile}, {email}]}});
+      if (taken) {
+        throw taken.mobile === mobile
+          ? conflict('This mobile number is already registered. Please log in.')
+          : conflict('This email is already registered. Please log in.');
+      }
+      const passwordHash = await hashPassword(password);
+      let user;
+      try {
+        user = await prisma.user.create({data: {mobile, name, email, passwordHash, lastLoginAt: new Date()}});
+      } catch (error) {
+        if (error.code === 'P2002') {
+          // someone registered the same number or email a moment ago
+          throw conflict('This mobile number or email is already registered. Please log in.');
+        }
+        throw error;
+      }
+      const session = await startSession(user, ctx, randomUUID(), deviceName);
+      await audit.record({action: 'auth.register', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent, metadata: {mobile: maskMobile(mobile)}});
+      return session;
+    },
+
+    // Login with an email or a mobile number and a password.
+    //  - Wrong password, unknown account and an account without a password all give the same answer, and each does
+    //    one full password check, so neither the message nor the time tells which one it was.
+    //  - 5 wrong passwords in a row lock the account for 15 minutes (HTTP 429 with Retry-After).
+    async login({identifier, password, deviceName}, ctx) {
+      const lookup = identifier.includes('@') ? {email: identifier.toLowerCase()} : {mobile: normalizeMobile(identifier)};
+      const user = lookup.email || lookup.mobile ? await prisma.user.findFirst({where: lookup}) : null;
+      const masked = maskIdentifier(identifier);
+
+      if (user?.lockedUntil && user.lockedUntil > new Date()) {
+        await audit.record({action: 'auth.login_locked', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent, metadata: {identifier: masked}});
+        throw tooManyRequests(WRONG_LOGIN, secondsLeft(user));
+      }
+
+      const right = user?.passwordHash ? await verifyPassword(password, user.passwordHash) : await verifyAgainstDummy(password);
+      if (!user || !right) {
+        if (user?.passwordHash) {
+          const failure = failureUpdate(user);
+          await prisma.user.update({where: {id: user.id}, data: failure.data});
+          if (failure.lock) {
+            await audit.record({action: 'auth.login_locked', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent, metadata: {identifier: masked}});
+          }
+        }
+        await audit.record({action: 'auth.login_failed', userId: user?.id, ip: ctx.ip, userAgent: ctx.userAgent, metadata: {identifier: masked}});
+        throw unauthorized(WRONG_LOGIN);
+      }
+
+      // Only someone who knows the password is told that the account is blocked
+      if (user.status !== 'active') {
+        await audit.record({action: 'auth.login.blocked', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent});
+        throw forbidden('This account cannot be used. Please contact support.');
+      }
+      const loggedIn = await prisma.user.update({where: {id: user.id}, data: {failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date()}});
+      const session = await startSession(loggedIn, ctx, randomUUID(), deviceName);
+      await audit.record({action: 'auth.login_success', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent});
+      return session;
+    },
+
+    // Changes the password of the logged-in user. Every login of this account ends (all refresh tokens), and the
+    // caller gets a fresh session so this phone stays logged in while any other phone has to log in again.
+    // A wrong current password counts towards the same lock as a wrong login, so a stolen access token cannot be
+    // used to guess the password.
+    async changePassword(userId, {currentPassword, newPassword}, ctx) {
+      const user = await prisma.user.findUnique({where: {id: userId}});
+      if (!user || user.status !== 'active') {
+        throw unauthorized(INVALID_SESSION);
+      }
+      if (user.lockedUntil && user.lockedUntil > new Date()) {
+        throw tooManyRequests('Too many wrong attempts. Please try again later.', secondsLeft(user));
+      }
+      const right = user.passwordHash ? await verifyPassword(currentPassword, user.passwordHash) : await verifyAgainstDummy(currentPassword);
+      if (!right) {
+        await prisma.user.update({where: {id: user.id}, data: failureUpdate(user).data});
+        await audit.record({action: 'auth.password_change_failed', userId, ip: ctx.ip, userAgent: ctx.userAgent});
+        throw badRequest('Some details are not valid.', [{field: 'currentPassword', message: 'The current password is not correct.'}]);
+      }
+      const problem =
+        newPassword === currentPassword
+          ? 'The new password must be different from the current one.'
+          : passwordProblem(newPassword, {mobile: user.mobile, email: user.email ?? undefined});
+      if (problem) {
+        throw badRequest('Some details are not valid.', [{field: 'newPassword', message: problem}]);
+      }
+      const updated = await prisma.user.update({
+        where: {id: userId},
+        data: {passwordHash: await hashPassword(newPassword), failedLoginCount: 0, lockedUntil: null},
+      });
+      await prisma.refreshToken.updateMany({where: {userId, revokedAt: null}, data: {revokedAt: new Date()}});
+      const session = await startSession(updated, ctx, randomUUID());
+      await audit.record({action: 'auth.password_changed', userId, ip: ctx.ip, userAgent: ctx.userAgent});
       return session;
     },
 

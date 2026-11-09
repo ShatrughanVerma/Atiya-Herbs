@@ -1,7 +1,7 @@
 const express = require('express');
 const {validateBody} = require('../common/validate');
 const {createLimiter} = require('../common/rateLimit');
-const {refreshSchema, requestOtpSchema, verifyOtpSchema} = require('./schemas');
+const {loginSchema, refreshSchema, registerSchema, requestOtpSchema, verifyOtpSchema} = require('./schemas');
 
 const contextOf = req => ({ip: req.ip ?? null, userAgent: req.headers['user-agent'] ?? null});
 
@@ -17,6 +17,15 @@ function createAuthRoutes({auth}) {
   router.post('/otp/verify', createLimiter({limit: 10}), validateBody(verifyOtpSchema), async (req, res) => {
     const {mobile, code, deviceName} = req.body;
     res.status(200).json(await auth.verifyOtp(mobile, code, deviceName, contextOf(req)));
+  });
+
+  // Account with a password. Strict limits per IP on top of the per-account lock in the service.
+  router.post('/register', createLimiter({limit: 10, windowSeconds: 3600}), validateBody(registerSchema), async (req, res) => {
+    res.status(201).json(await auth.register(req.body, contextOf(req)));
+  });
+
+  router.post('/login', createLimiter({limit: 15, windowSeconds: 300}), validateBody(loginSchema), async (req, res) => {
+    res.status(200).json(await auth.login(req.body, contextOf(req)));
   });
 
   router.post('/refresh', createLimiter({limit: 30}), validateBody(refreshSchema), async (req, res) => {

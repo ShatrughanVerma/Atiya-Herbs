@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 import { CartProvider } from './src/context/CartContext';
+import { CatalogProvider } from './src/context/CatalogContext';
 import { CallProvider } from './src/calling/CallContext';
 import CallOverlay from './src/calling/CallOverlay';
 import { MeetingProvider } from './src/meetings/MeetingContext';
@@ -22,7 +23,8 @@ export default function App() {
         translucent
       />
       <AuthProvider>
-        <CartProvider>
+        <CatalogProvider>
+          <CartProvider>
           <CallProvider>
             <MeetingProvider>
               <ConferenceProvider>
@@ -40,7 +42,8 @@ export default function App() {
               </ConferenceProvider>
             </MeetingProvider>
           </CallProvider>
-        </CartProvider>
+          </CartProvider>
+        </CatalogProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

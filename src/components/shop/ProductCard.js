@@ -2,7 +2,7 @@ import React from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useCart} from '../../context/CartContext';
-import {discountPercent} from '../../data/catalog';
+import {discountPercent} from '../../utils/pricing';
 import {colors, formatPrice} from '../../theme';
 import ProductImage from './ProductImage';
 import QuantityStepper from './QuantityStepper';

@@ -20,6 +20,9 @@ async function main() {
     console.log(`Atiya Herbs API listening on port ${config.PORT} (${config.NODE_ENV}, OTP sender: ${config.OTP_SENDER})`);
   });
 
+  // A long video can take a while to upload on a slow network: allow up to 30 minutes for one request
+  server.requestTimeout = 30 * 60 * 1000;
+
   // Finish the requests in progress, then close the database, when the host stops or restarts the server
   let stopping = false;
   const shutdown = signal => {

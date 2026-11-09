@@ -86,7 +86,7 @@ describe('verifying an OTP', () => {
 
     expect(session.tokenType).toBe('Bearer');
     expect(session.expiresInSeconds).toBe(900);
-    expect(session.user).toMatchObject({mobile: MOBILE, role: 'customer', name: null});
+    expect(session.user).toMatchObject({mobile: MOBILE, roleId: 14, role: 'customer', name: null});
     expect(session.accessToken.split('.')).toHaveLength(3);
     expect(t.prisma.user.rows).toHaveLength(1);
 
@@ -210,7 +210,7 @@ describe('the logged-in user', () => {
 
     const ok = await request(t.app).get('/api/v1/users/me').set('Authorization', `Bearer ${session.accessToken}`);
     expect(ok.status).toBe(200);
-    expect(ok.body).toMatchObject({mobile: MOBILE, role: 'customer'});
+    expect(ok.body).toMatchObject({mobile: MOBILE, roleId: 14, role: 'customer'});
 
     await request(t.app).get('/api/v1/users/me').expect(401);
     await request(t.app).get('/api/v1/users/me').set('Authorization', 'Bearer not-a-token').expect(401);
@@ -222,7 +222,7 @@ describe('the logged-in user', () => {
     const session = await t.login();
     const userId = session.user.id;
     const secret = BASE_ENV.JWT_ACCESS_SECRET;
-    const claims = {role: 'admin'};
+    const claims = {roleId: 1};
     const good = {subject: userId, issuer: 'atiyaherbs-api', audience: 'atiyaherbs-app'};
 
     const tokens = {
@@ -230,8 +230,8 @@ describe('the logged-in user', () => {
       expired: jwt.sign(claims, secret, {...good, expiresIn: -10}),
       wrongAudience: jwt.sign(claims, secret, {...good, audience: 'someone-else'}),
       wrongIssuer: jwt.sign(claims, secret, {...good, issuer: 'someone-else'}),
-      unknownRole: jwt.sign({role: 'superuser'}, secret, good),
-      algNone: `${Buffer.from('{"alg":"none","typ":"JWT"}').toString('base64url')}.${Buffer.from(JSON.stringify({sub: userId, role: 'admin', iss: 'atiyaherbs-api', aud: 'atiyaherbs-app'})).toString('base64url')}.`,
+      unknownRole: jwt.sign({roleId: 999}, secret, good),
+      algNone: `${Buffer.from('{"alg":"none","typ":"JWT"}').toString('base64url')}.${Buffer.from(JSON.stringify({sub: userId, roleId: 1, iss: 'atiyaherbs-api', aud: 'atiyaherbs-app'})).toString('base64url')}.`,
     };
     for (const [name, token] of Object.entries(tokens)) {
       const res = await request(t.app).get('/api/v1/users/me').set('Authorization', `Bearer ${token}`);
@@ -260,7 +260,7 @@ describe('the logged-in user', () => {
       const bad = await request(t.app).patch('/api/v1/users/me').set(auth).send(body);
       expect([asJson(body), bad.status]).toEqual([asJson(body), 400]);
     }
-    expect(t.prisma.user.rows[0].role).toBe('customer');
+    expect(t.prisma.user.rows[0].roleId).toBe(14);
   });
 
   test('profile fields are checked, and quotes are stored safely, not run as SQL', async () => {

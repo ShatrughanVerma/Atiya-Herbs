@@ -5,7 +5,8 @@ import ProductCard from '../../components/shop/ProductCard';
 import ScreenHeader from '../../components/shop/ScreenHeader';
 import EmptyState from '../../components/shop/EmptyState';
 import FilterSheet from '../../components/shop/FilterSheet';
-import {PRODUCTS} from '../../data/catalog';
+import {CatalogUnavailable, OfflineBanner} from '../../components/shop/CatalogStatus';
+import {useCatalog} from '../../context/CatalogContext';
 import {colors, spacing} from '../../theme';
 import {
   DEFAULT_FILTERS,
@@ -19,6 +20,7 @@ export default function ProductListScreen({navigation, route}) {
   const {title = 'All Products', category, concern, bestseller} = route.params || {};
   const [filters, setFilters] = useState(route.params?.filters || DEFAULT_FILTERS);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const {ready, products: PRODUCTS} = useCatalog();
 
   // The page's own category/concern/best-seller scope; the sheet filters within it
   const baseProducts = useMemo(
@@ -29,14 +31,24 @@ export default function ProductListScreen({navigation, route}) {
           (!concern || p.concerns.includes(concern)) &&
           (!bestseller || p.bestseller),
       ),
-    [category, concern, bestseller],
+    [PRODUCTS, category, concern, bestseller],
   );
   const products = useMemo(() => applyFilters(baseProducts, filters), [baseProducts, filters]);
   const activeCount = countActiveFilters(filters);
 
+  if (!ready) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <ScreenHeader title={title} navigation={navigation} showCart />
+        <CatalogUnavailable />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScreenHeader title={title} navigation={navigation} showCart />
+      <OfflineBanner />
 
       <View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>

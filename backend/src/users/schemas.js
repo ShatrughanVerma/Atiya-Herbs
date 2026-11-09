@@ -13,7 +13,13 @@ const updateProfileSchema = z
       // eslint-disable-next-line no-control-regex -- control characters are rejected on purpose
       .regex(/^[^<>\u0000-\u001f]+$/, 'name has characters that are not allowed.')
       .optional(),
-    email: z.string().trim().max(254).pipe(z.email()).optional(),
+    email: z
+      .string()
+      .trim()
+      .max(254)
+      .pipe(z.email())
+      .transform(value => value.toLowerCase()) // one account per email, whatever the capital letters
+      .optional(),
   })
   .strict();
 

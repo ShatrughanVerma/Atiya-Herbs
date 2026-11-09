@@ -28,14 +28,29 @@ const schema = z
     TRUST_PROXY: int(1, 0, 5),
     // Origins allowed to call the API from a browser (e.g. the admin panel). The mobile app needs none.
     CORS_ORIGINS: z.string().optional().default(''),
+    // Doctor photo uploads (Cloudinary signed upload). All three or none.
+    // Consultation videos: the folder they are kept in, the biggest file, and how long they are kept (days)
+    VIDEO_STORAGE_DIR: z.string().optional().default('./storage/videos'),
+    VIDEO_MAX_MB: int(500, 1, 2000), // the database column holds up to about 2 GB
+    VIDEO_MAX_PER_APPOINTMENT: int(3, 1, 100),
+    VIDEO_RETENTION_DAYS: int(365, 30, 3650),
+    CLOUDINARY_CLOUD_NAME: z.string().optional().default(''),
+    CLOUDINARY_API_KEY: z.string().optional().default(''),
+    CLOUDINARY_API_SECRET: z.string().optional().default(''),
 
     DB_HOST: z.string().default('localhost'),
-    DB_PORT: int(1433, 1, 65535),
+    DB_PORT: int(3306, 1, 65535),
     DB_NAME: z.string().default('atiyaherbs'),
     DB_USER: required('DB_USER'),
     DB_PASSWORD: required('DB_PASSWORD'),
-    DB_ENCRYPT: bool(true),
-    DB_TRUST_SERVER_CERT: bool(false),
+    // true = encrypted connection with a checked certificate (needed by cloud MySQL such as Aiven or TiDB Cloud)
+    DB_SSL: bool(false),
+
+    // Shared secret that call-backend sends when it saves call history and meeting messages. Unset = those routes are off.
+    INTERNAL_API_KEY: z.preprocess(
+      value => (value === '' ? undefined : value), // an empty line in .env means "off"
+      z.string().min(32, 'INTERNAL_API_KEY must be at least 32 characters (use a long random value)').optional(),
+    ),
 
     JWT_ACCESS_SECRET: secret('JWT_ACCESS_SECRET'),
     JWT_ACCESS_TTL_SECONDS: int(900, 60, 3600), // 15 minutes
@@ -63,11 +78,8 @@ const schema = z
       if (env.OTP_DEV_ECHO) {
         problem('OTP_DEV_ECHO', 'OTP_DEV_ECHO must be false in production');
       }
-      if (!env.DB_ENCRYPT) {
-        problem('DB_ENCRYPT', 'DB_ENCRYPT must be true in production');
-      }
-      if (env.DB_TRUST_SERVER_CERT) {
-        problem('DB_TRUST_SERVER_CERT', 'DB_TRUST_SERVER_CERT must be false in production (use a real certificate)');
+      if (!env.DB_SSL && !['localhost', '127.0.0.1'].includes(env.DB_HOST)) {
+        problem('DB_SSL', 'DB_SSL must be true in production when the database is on another machine');
       }
     }
     if (env.OTP_SENDER === 'sms' && env.OTP_DEV_ECHO) {

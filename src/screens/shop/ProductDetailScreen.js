@@ -15,7 +15,11 @@ import ProductCard from '../../components/shop/ProductCard';
 import ProductImage from '../../components/shop/ProductImage';
 import QuantityStepper from '../../components/shop/QuantityStepper';
 import {useCart} from '../../context/CartContext';
-import {PRODUCTS, discountPercent, getProduct} from '../../data/catalog';
+import {CatalogUnavailable} from '../../components/shop/CatalogStatus';
+import EmptyState from '../../components/shop/EmptyState';
+import ScreenHeader from '../../components/shop/ScreenHeader';
+import {useCatalog} from '../../context/CatalogContext';
+import {discountPercent} from '../../utils/pricing';
 import {colors, formatPrice, spacing} from '../../theme';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
@@ -34,13 +38,23 @@ function Section({title, children, initiallyOpen = false}) {
 }
 
 export default function ProductDetailScreen({navigation, route}) {
+  const {ready, products: PRODUCTS, getProduct} = useCatalog();
   const product = getProduct(route.params.id);
   const {getQty, setQty, addToCart, isWishlisted, toggleWishlist, count} = useCart();
   const [pincode, setPincode] = useState('');
   const [delivery, setDelivery] = useState(null);
 
   if (!product) {
-    return null;
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <ScreenHeader title="Product" navigation={navigation} showCart />
+        {ready ? (
+          <EmptyState icon="package-variant" title="Product not found" note="This product is not available any more." />
+        ) : (
+          <CatalogUnavailable />
+        )}
+      </SafeAreaView>
+    );
   }
 
   const qty = getQty(product.id);

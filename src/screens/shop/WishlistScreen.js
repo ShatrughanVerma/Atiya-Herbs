@@ -5,12 +5,23 @@ import EmptyState from '../../components/shop/EmptyState';
 import ProductCard from '../../components/shop/ProductCard';
 import ScreenHeader from '../../components/shop/ScreenHeader';
 import {useCart} from '../../context/CartContext';
-import {getProduct} from '../../data/catalog';
+import {CatalogUnavailable} from '../../components/shop/CatalogStatus';
+import {useCatalog} from '../../context/CatalogContext';
 import {colors, spacing} from '../../theme';
 
 export default function WishlistScreen({navigation}) {
   const {wishlist} = useCart();
+  const {ready, getProduct} = useCatalog();
   const products = wishlist.map(getProduct).filter(Boolean);
+
+  if (!ready && wishlist.length > 0) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <ScreenHeader title="My Wishlist" navigation={navigation} showCart />
+        <CatalogUnavailable />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>

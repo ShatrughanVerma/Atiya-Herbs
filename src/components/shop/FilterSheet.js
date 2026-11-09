@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { CATEGORIES, CONCERNS, PRODUCTS } from '../../data/catalog';
+import { useCatalog } from '../../context/CatalogContext';
 import { colors, spacing } from '../../theme';
 import {
   DEFAULT_FILTERS,
@@ -63,8 +63,10 @@ export default function FilterSheet({
   initial,
   onApply,
   onClose,
-  baseProducts = PRODUCTS,
+  baseProducts: baseProductsProp,
 }) {
+  const catalog = useCatalog();
+  const baseProducts = baseProductsProp ?? catalog.products;
   const { bottom } = useSafeAreaInsets();
   const [draft, setDraft] = useState(initial || DEFAULT_FILTERS);
 
@@ -150,7 +152,7 @@ export default function FilterSheet({
 
             <Section title="Health concern">
               <View style={styles.chipWrap}>
-                {CONCERNS.map(c => (
+                {catalog.concerns.map(c => (
                   <Chip
                     key={c.id}
                     label={c.name}
@@ -166,7 +168,7 @@ export default function FilterSheet({
 
             <Section title="Category">
               <View style={styles.chipWrap}>
-                {CATEGORIES.map(c => (
+                {catalog.categories.map(c => (
                   <Chip
                     key={c.id}
                     label={c.name}

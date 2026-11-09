@@ -2,9 +2,10 @@ import React from 'react';
 import {Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import {useAuth} from '../context/AuthContext';
+import {isServerAccount, useAuth} from '../context/AuthContext';
 import {useCart} from '../context/CartContext';
 import {CONTACT, PAGES, SOCIAL} from '../data/store';
+import {formatMobile} from '../calling/phone';
 import {colors, spacing} from '../theme';
 import {chooseProfilePhoto} from '../utils/profilePhoto';
 
@@ -50,8 +51,29 @@ function MenuSection({title, items}) {
 }
 
 export default function ProfileScreen({navigation}) {
-  const {orders, wishlist, count} = useCart();
-  const {user, signIn, signOut} = useAuth();
+  const {ordersTotal, wishlist, count} = useCart();
+  const {user, signIn, signOut, deleteAccount} = useAuth();
+
+  // "Delete my account" (an app-store rule): the backend removes the data, then the phone forgets the login
+  const onDeleteAccount = () =>
+    Alert.alert(
+      'Delete my account',
+      'This permanently deletes your account, saved addresses and chats. Orders you already placed are kept for our records, without your details. This cannot be undone.',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteAccount();
+            } catch (e) {
+              Alert.alert('Delete my account', e.message);
+            }
+          },
+        },
+      ],
+    );
 
   const onChangePhoto = () => {
     if (!user) {
@@ -66,7 +88,7 @@ export default function ProfileScreen({navigation}) {
   };
 
   const stats = [
-    {icon: 'package-variant-closed', value: orders.length, label: 'Orders', onPress: () => navigation.navigate('Orders')},
+    {icon: 'package-variant-closed', value: ordersTotal, label: 'Orders', onPress: () => navigation.navigate('Orders')},
     {icon: 'heart-outline', value: wishlist.length, label: 'Wishlist', onPress: () => navigation.navigate('Wishlist')},
     {icon: 'cart-outline', value: count, label: 'In cart', onPress: () => navigation.navigate('Cart')},
   ];
@@ -81,14 +103,19 @@ export default function ProfileScreen({navigation}) {
           note: 'Name, email, mobile',
           onPress: () => (user ? navigation.navigate('EditProfile') : navigation.navigate('Login')),
         },
-        {icon: 'package-variant-closed', label: 'My Orders', note: 'Track, return or reorder', badge: orders.length, onPress: () => navigation.navigate('Orders')},
+        {icon: 'package-variant-closed', label: 'My Orders', note: 'Track, return or reorder', badge: ordersTotal, onPress: () => navigation.navigate('Orders')},
         {icon: 'heart-outline', label: 'My Wishlist', note: 'Products you saved', badge: wishlist.length, onPress: () => navigation.navigate('Wishlist')},
         {icon: 'cart-outline', label: 'My Cart', note: 'Ready to check out', badge: count, onPress: () => navigation.navigate('Cart')},
+        // Accounts saved on the server can be deleted from here
+        ...(isServerAccount(user)
+          ? [{icon: 'account-remove-outline', label: 'Delete my account', note: 'Remove your account and data', tint: '#FDECEC', iconColor: colors.danger, onPress: onDeleteAccount}]
+          : []),
       ],
     },
     {
       title: 'HEALTH & CONSULTATION',
       items: [
+        {icon: 'calendar-check-outline', label: 'My Appointments', note: 'Doctor consultations', onPress: () => navigation.navigate('Appointments')},
         {icon: 'stethoscope', label: 'Expert Advice', note: 'Ask our Unani experts', onPress: () => openLink(PAGES.expertAdvice), external: true},
         {icon: 'map-marker-radius-outline', label: 'Clinic Locations', note: 'Delhi, Mumbai, Lucknow & more', onPress: () => openLink(PAGES.clinics), external: true},
         {icon: 'book-open-page-variant-outline', label: 'Sulemani Nuskhe', note: 'Traditional home remedies', onPress: () => openLink(PAGES.sulemaniNuskhe), external: true},
@@ -141,7 +168,7 @@ export default function ProfileScreen({navigation}) {
                 Hello, {user ? user.name.split(' ')[0] : 'Guest'}
               </Text>
               <Text style={styles.sub} numberOfLines={2}>
-                {user ? user.email : 'Log in for faster checkout and to track your orders'}
+                {user ? user.email || formatMobile(user.mobile) : 'Log in for faster checkout and to track your orders'}
               </Text>
               {user?.provider === 'google' && (
                 <View style={styles.providerTag}>

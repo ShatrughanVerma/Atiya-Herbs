@@ -1,5 +1,4 @@
 import {NativeModules, Platform} from 'react-native';
-import {PRODUCTS} from '../data/catalog';
 
 const {VoiceSearch} = NativeModules;
 
@@ -45,12 +44,12 @@ const scoreProduct = (heard, product) => {
  * Picks the product the user most likely said, or null when no product name was clearly spoken.
  * `phrases` are the recognizer's guesses, best first.
  */
-export function matchProduct(phrases) {
+export function matchProduct(phrases, products = []) {
   let winner = null;
   let winnerScore = 0;
   for (const phrase of phrases) {
     const heard = normalize(phrase);
-    for (const product of PRODUCTS) {
+    for (const product of products) {
       const score = scoreProduct(heard, product);
       if (score > winnerScore) {
         winner = product;

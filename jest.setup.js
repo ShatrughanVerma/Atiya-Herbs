@@ -34,3 +34,17 @@ jest.mock('react-native-agora', () => ({
   VideoMirrorModeType: {VideoMirrorModeEnabled: 1, VideoMirrorModeDisabled: 2},
   RtcSurfaceView: 'RtcSurfaceView',
 }));
+
+// The login tokens go to the Android Keystore through react-native-keychain (native code); tests keep them in memory
+jest.mock('react-native-keychain', () => {
+  const store = new Map();
+  return {
+    setGenericPassword: jest.fn(async (username, password, options = {}) => {
+      store.set(options.service || 'default', {username, password});
+      return {service: options.service || 'default', storage: 'mock'};
+    }),
+    getGenericPassword: jest.fn(async (options = {}) => store.get(options.service || 'default') || false),
+    resetGenericPassword: jest.fn(async (options = {}) => store.delete(options.service || 'default')),
+    __store: store,
+  };
+});

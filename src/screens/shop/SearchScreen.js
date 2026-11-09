@@ -4,18 +4,19 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import ProductImage from '../../components/shop/ProductImage';
 import EmptyState from '../../components/shop/EmptyState';
-import {CONCERNS, PRODUCTS, getCategory} from '../../data/catalog';
+import {CatalogUnavailable} from '../../components/shop/CatalogStatus';
+import {useCatalog} from '../../context/CatalogContext';
 import {colors, formatPrice, spacing} from '../../theme';
 import {isVoiceSearchAvailable, listen, matchProduct} from '../../utils/voiceSearch';
 
 const POPULAR_SEARCHES = ['Joint pain', 'Hair oil', 'Diabetes', 'Kalonji', 'Vinegar', 'Gond'];
 
-const matches = (product, q) => {
+const matches = (product, q, {getCategory, concerns}) => {
   const text = [
     product.name,
     product.ingredients,
     getCategory(product.category)?.name,
-    ...product.concerns.map(c => CONCERNS.find(x => x.id === c)?.name),
+    ...product.concerns.map(c => concerns.find(x => x.id === c)?.name),
   ]
     .join(' ')
     .toLowerCase();
@@ -29,7 +30,13 @@ const matches = (product, q) => {
 export default function SearchScreen({navigation, route}) {
   const [query, setQuery] = useState(route.params?.query || '');
   const q = query.trim();
-  const results = useMemo(() => (q ? PRODUCTS.filter(p => matches(p, q)) : []), [q]);
+  const catalog = useCatalog();
+  const {ready, products: PRODUCTS, concerns: CONCERNS} = catalog;
+  const results = useMemo(
+    () => (q && ready ? PRODUCTS.filter(p => matches(p, q, catalog)) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [q, ready, PRODUCTS],
+  );
 
   const onVoiceSearch = async () => {
     try {
@@ -37,7 +44,7 @@ export default function SearchScreen({navigation, route}) {
       if (phrases.length === 0) {
         return;
       }
-      const product = matchProduct(phrases);
+      const product = matchProduct(phrases, PRODUCTS);
       if (product) {
         navigation.navigate('ProductDetail', {id: product.id});
       } else {
@@ -116,7 +123,11 @@ export default function SearchScreen({navigation, route}) {
             ) : null
           }
           ListEmptyComponent={
-            <EmptyState icon="magnify-close" title="No results found" note={`We couldn't find anything for “${q}”.`} />
+            ready ? (
+              <EmptyState icon="magnify-close" title="No results found" note={`We couldn't find anything for “${q}”.`} />
+            ) : (
+              <CatalogUnavailable compact />
+            )
           }
           renderItem={({item}) => (
             <Pressable style={styles.row} onPress={() => navigation.navigate('ProductDetail', {id: item.id})}>

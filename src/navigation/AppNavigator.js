@@ -9,7 +9,11 @@ import SplashScreen from '../screens/SplashScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ExploreScreen from '../screens/ExploreScreen';
-import ClinicScreen from '../screens/ClinicScreen';
+import DoctorListScreen from '../screens/consult/DoctorListScreen';
+import DoctorDetailScreen from '../screens/consult/DoctorDetailScreen';
+import BookAppointmentScreen from '../screens/consult/BookAppointmentScreen';
+import AppointmentsScreen from '../screens/consult/AppointmentsScreen';
+import FindClinicScreen from '../screens/consult/FindClinicScreen';
 import ReelsScreen from '../screens/ReelsScreen';
 import CartScreen from '../screens/CartScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -25,6 +29,9 @@ import OrdersScreen from '../screens/shop/OrdersScreen';
 import WishlistScreen from '../screens/shop/WishlistScreen';
 import CallsScreen from '../calling/CallsScreen';
 import MeetingsScreen from '../meetings/MeetingsScreen';
+import DoctorTabs from '../doctor/DoctorTabs';
+import DaysTimesScreen from '../doctor/DaysTimesScreen';
+import {useAuth} from '../context/AuthContext';
 import {useCart} from '../context/CartContext';
 import {colors} from '../theme';
 
@@ -82,7 +89,7 @@ function Tabs() {
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Reels" component={ReelsScreen} options={{title: 'Reel'}} />
       <Tab.Screen name="Explore" component={ExploreScreen} />
-      <Tab.Screen name="Clinic" component={ClinicScreen} />
+      <Tab.Screen name="Clinic" component={DoctorListScreen} options={{title: 'Clinics'}} />
       <Tab.Screen
         name="Cart"
         component={CartScreen}
@@ -93,12 +100,18 @@ function Tabs() {
   );
 }
 
+// "Main" is the shop for everybody, and the doctor's own home for a login with the Doctor role
+function MainTabs() {
+  const {user} = useAuth();
+  return user?.role === 'doctor' ? <DoctorTabs /> : <Tabs />;
+}
+
 export default function AppNavigator() {
   return (
     <NavigationContainer>
       <Stack.Navigator initialRouteName="Splash" screenOptions={{headerShown: false}}>
         <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Main" component={Tabs} />
+        <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen name="Splash" component={SplashScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{animation: 'fade'}} />
         <Stack.Screen name="ProductList" component={ProductListScreen} />
@@ -110,6 +123,11 @@ export default function AppNavigator() {
         <Stack.Screen name="Wishlist" component={WishlistScreen} />
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         <Stack.Screen name="SignUp" component={SignUpScreen} />
+        <Stack.Screen name="DoctorDetail" component={DoctorDetailScreen} />
+        <Stack.Screen name="BookAppointment" component={BookAppointmentScreen} />
+        <Stack.Screen name="Appointments" component={AppointmentsScreen} />
+        <Stack.Screen name="FindClinic" component={FindClinicScreen} />
+        <Stack.Screen name="DaysTimes" component={DaysTimesScreen} />
         <Stack.Screen name="Calls" component={CallsScreen} />
         <Stack.Screen name="Meetings" component={MeetingsScreen} />
       </Stack.Navigator>
