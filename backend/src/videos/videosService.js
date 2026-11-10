@@ -24,12 +24,12 @@ const looksLikeVideo = head =>
 const fail = (status, message) => new HttpError(status, message);
 
 // One row of the video list, as staff see it. `exists` says whether the file is on disk (null: not checked).
-const toVideo = (v, exists, patientNo) => ({
+const toVideo = (v, exists) => ({
   id: v.id,
   code: v.videoCode ?? formatVideoCode(v.videoNo),
-  patient: {id: v.userId ?? null, code: v.patientCode ?? formatPatientCode(patientNo), name: v.patientName, mobile: v.patientMobile},
+  patient: {code: v.patientCode ?? null, name: v.patientName, mobile: v.patientMobile},
   doctor: {id: v.doctorId, name: v.doctorName},
-  status: v.deletedAt ? 'archived' : v.status === 'uploaded' && exists === false ? 'missing' : v.status,
+  status: v.deletedAt ? (v.removedBy === 'doctor' ? 'deleted' : 'archived') : v.status === 'uploaded' && exists === false ? 'missing' : v.status,
   failedReason: v.failedReason ?? null,
   storage: v.storageKind ?? null,
   location: v.location ?? null,
@@ -45,15 +45,15 @@ const toVideo = (v, exists, patientNo) => ({
 });
 
 // What a doctor sees of their own video: its id (V000012) and the patient (with the patient id), and its
-// state. `patientNo` is the patient's short number (P000123), looked up by the service.
-const toDoctorVideo = (v, patientNo) => ({
+// state.
+const toDoctorVideo = v => ({
   id: v.id,
   code: v.videoCode ?? formatVideoCode(v.videoNo),
-  status: v.deletedAt ? 'archived' : v.status,
+  status: v.deletedAt ? (v.removedBy === 'doctor' ? 'deleted' : 'archived') : v.status,
   failedReason: v.failedReason ?? null,
   patientName: v.patientName,
   patientMobile: v.patientMobile,
-  patientCode: formatPatientCode(patientNo),
+  patientCode: v.patientCode ?? null,
   sizeBytes: v.sizeBytes ?? null,
   durationSec: v.durationSec ?? null,
   createdAt: v.createdAt.toISOString(),
@@ -68,15 +68,6 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
   const linkKey = createHash('sha256').update(`video-link:${config.JWT_ACCESS_SECRET}`).digest();
 
   const sign = (id, action, expires) => createHmac('sha256', linkKey).update(`${id}|${action}|${expires}`).digest('hex');
-
-  // userId -> the patient's short number, for a list of videos
-  const patientNumbers = async userIds => {
-    const ids = [...new Set(userIds.filter(Boolean))];
-    if (!ids.length) {
-      return new Map();
-    }
-    return new Map((await prisma.user.findMany({where: {id: {in: ids}}})).map(u => [u.id, u.patientNo]));
-  };
 
   const record = (videoId, userId, action, ip) =>
     prisma.videoAudit.create({data: {videoId, userId: userId ?? null, action, ip: ip ? String(ip).slice(0, 64) : null}});
@@ -194,7 +185,6 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
         data: {
           doctorId: doctor.id,
           doctorName: doctor.name,
-          userId: patient.id,
           patientCode: formatPatientCode(patient.patientNo),
           patientName: patient.name ?? '',
           patientMobile: patient.mobile,
@@ -202,7 +192,6 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
           sizeBytes: input.sizeBytes ?? null,
           durationSec: input.durationSec ?? null,
           consentAt: now(),
-          consentByUserId: user.id,
         },
       });
       // the video number is given by MySQL when the row is made; it is then written next to it as V000012
@@ -235,11 +224,31 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
       }
       const saved = await prisma.consultVideo.update({where: {id: video.id}, data: {status: 'uploaded', fileName: key, storageKind: config.VIDEO_STORAGE, location: locationOf(key), url: `${config.publicApiUrl}/api/v1/videos/stream/${video.id}`, uploadIp: req.ip ? String(req.ip).slice(0, 64) : null, uploadDevice: req.headers['user-agent'] ? String(req.headers['user-agent']).slice(0, 250) : null, sizeBytes: bytes, uploadedAt: now()}});
       await record(video.id, user.id, 'upload', req.ip);
-      return toDoctorVideo(saved, (await patientNumbers([saved.userId])).get(saved.userId));
+      return toDoctorVideo(saved);
     },
 
     // The doctor's own latest videos (all their visits), newest first. Smart search (q): a video id (V000012), a patient
     // id (P000123), a mobile number, a patient name or a visit number; `status` narrows it to one state.
+    // The doctor deletes one of their own videos (a long press in the app). The file is removed for good; the row stays as a
+    // record ("deleted") and the audit log keeps who did it. A video on legal hold, or one that is still being sent, stays.
+    async removeMine(doctor, user, id, ip) {
+      const v = await prisma.consultVideo.findFirst({where: {id, doctorId: doctor.id, deletedAt: null}});
+      if (!v) {
+        throw notFound('Video not found.');
+      }
+      if (v.legalHold) {
+        throw conflict('This video is on a legal hold and cannot be deleted. Please contact the office.');
+      }
+      if (v.status === 'uploading') {
+        throw conflict('This video is still being uploaded. Please wait until it has finished.');
+      }
+      if (v.fileName) {
+        await storage.remove(v.fileName);
+      }
+      await prisma.consultVideo.update({where: {id}, data: {deletedAt: now(), removedBy: 'doctor'}});
+      await record(id, user.id, 'delete', ip);
+    },
+
     async listMine(doctor, {q, status} = {}) {
       const and = [{doctorId: doctor.id}, {deletedAt: null}];
       if (status) {
@@ -250,27 +259,22 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
       if (videoNo) {
         and.push({videoNo});
       } else if (codeNo) {
-        const person = await prisma.user.findUnique({where: {patientNo: codeNo}});
-        and.push({userId: person ? person.id : '-'});
+        and.push({patientCode: formatPatientCode(codeNo)});
       } else if (q) {
         and.push({OR: [{patientName: {contains: q}}, {patientMobile: {contains: q}}]});
       }
       const rows = await prisma.consultVideo.findMany({where: {AND: and}, orderBy: [{createdAt: 'desc'}], take: 50});
-      const numbers = await patientNumbers(rows.map(v => v.userId));
-      return rows.map(v => toDoctorVideo(v, numbers.get(v.userId)));
+      return rows.map(toDoctorVideo);
     },
 
     // ---- staff side
-    async list({q, doctor, doctorId, patientId, patientCode, status, from, to, page, pageSize}) {
+    async list({q, doctor, doctorId, patientCode, status, from, to, page, pageSize}) {
       const and = [];
       if (doctorId) {
         and.push({doctorId});
       }
       if (doctor) {
         and.push({doctorName: {contains: doctor}});
-      }
-      if (patientId) {
-        and.push({userId: patientId});
       }
       if (status) {
         and.push({status});
@@ -287,8 +291,7 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
       if (videoNo) {
         and.push({videoNo});
       } else if (codeNo) {
-        const person = await prisma.user.findUnique({where: {patientNo: codeNo}});
-        and.push({userId: person ? person.id : '-'});
+        and.push({patientCode: formatPatientCode(codeNo)});
       } else if (q) {
         and.push({OR: [{patientName: {contains: q}}, {patientMobile: {contains: q}}]});
       }
@@ -297,12 +300,10 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
         prisma.consultVideo.count({where}),
         prisma.consultVideo.findMany({where, orderBy: [{createdAt: 'desc'}], skip: (page - 1) * pageSize, take: pageSize}),
       ]);
-      const ids = [...new Set(rows.map(v => v.userId).filter(Boolean))];
-      const numbers = new Map(ids.length ? (await prisma.user.findMany({where: {id: {in: ids}}})).map(u => [u.id, u.patientNo]) : []);
       const items = [];
       for (const v of rows) {
         const present = v.status === 'uploaded' && !v.deletedAt && v.fileName ? !!(await storage.stat(v.fileName)) : null;
-        items.push(toVideo(v, present, numbers.get(v.userId)));
+        items.push(toVideo(v, present));
       }
       return {total, page, pageSize, items};
     },
@@ -316,9 +317,8 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
         const user = await prisma.user.findUnique({where: {id: userId}});
         people.set(userId, user ? {id: user.id, name: user.name, mobile: user.mobile} : null);
       }
-      const owner = v.userId ? await prisma.user.findUnique({where: {id: v.userId}}) : null;
       return {
-        ...toVideo(v, present, owner?.patientNo),
+        ...toVideo(v, present),
         audit: entries.map(e => ({action: e.action, by: e.userId ? people.get(e.userId) ?? {id: e.userId, name: null, mobile: null} : null, ip: e.ip, at: e.createdAt.toISOString()})),
       };
     },
@@ -423,7 +423,7 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
       });
       for (const v of old) {
         await storage.remove(v.fileName);
-        await prisma.consultVideo.update({where: {id: v.id}, data: {deletedAt: current}});
+        await prisma.consultVideo.update({where: {id: v.id}, data: {deletedAt: current, removedBy: 'policy'}});
         await record(v.id, null, 'delete', null);
         result.archived += 1;
       }

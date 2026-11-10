@@ -71,6 +71,7 @@ The APK is signed with the debug key; create your own keystore before publishing
 
 | File | What it covers |
 |---|---|
+| `docs/CALLING_HOW_IT_WORKS.md` | The whole calling process step by step: ring, LiveKit/Agora, recording, browser links, settings, troubleshooting |
 | `docs/CALLS_LIVEKIT.md` | How calls work and how to set them up (LiveKit, backend, hosting) |
 | `docs/CALL_RECORDING.md` | Call recording: consent, R2, Cloudinary, Cloudflare D1 |
 | `docs/CALLING_OVERVIEW.md` | What is used for calling and what is free, with limits |

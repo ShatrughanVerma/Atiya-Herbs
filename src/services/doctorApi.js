@@ -70,6 +70,9 @@ export function sendVideoFile(videoId, file, onProgress) {
 // status is 'uploaded' | 'failed' | 'uploading'
 export const fetchMyVideos = ({ q, status } = {}) => authFetch(`/doctor/videos${query({ q, status })}`);
 // A link that plays one of the doctor's own videos for an hour -> {path, expiresAt}
+// Deletes one of the doctor's own videos for good (a long press in the list)
+export const deleteVideo = videoId =>
+  authFetch(`/doctor/videos/${encodeURIComponent(videoId)}`, { method: 'DELETE' });
 export const getVideoPlayLink = videoId =>
   authFetch(`/doctor/videos/${encodeURIComponent(videoId)}/link`, { method: 'POST', body: { action: 'play' } });
 

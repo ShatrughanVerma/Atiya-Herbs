@@ -1,10 +1,10 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
+import {ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import EmptyState from '../components/shop/EmptyState';
 import ScreenHeader from '../components/shop/ScreenHeader';
-import {fetchMyVideos} from '../services/doctorApi';
+import {deleteVideo, fetchMyVideos} from '../services/doctorApi';
 import {formatDay, formatTime} from '../utils/consult';
 import {formatBytes, formatDuration} from '../utils/doctor';
 import VideoPlayerModal from './VideoPlayerModal';
@@ -51,6 +51,25 @@ export default function MyVideosScreen({navigation}) {
     return navigation.addListener('focus', load);
   }, [load, navigation]);
 
+  // Holding a video for a moment offers to delete it (asks once more before it is gone for good)
+  const askDelete = v => {
+    Alert.alert('Delete video', `Delete ${v.code} (${v.patientName})? The video is removed for good and cannot be brought back.`, [
+      {text: 'Cancel', style: 'cancel'},
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteVideo(v.id);
+            setItems(list => list.filter(x => x.id !== v.id));
+          } catch (e) {
+            Alert.alert('Could not delete', e?.message || 'Please try again.');
+          }
+        },
+      },
+    ]);
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScreenHeader title="Consultation videos" navigation={navigation} />
@@ -96,6 +115,7 @@ export default function MyVideosScreen({navigation}) {
           refreshing={false}
           onRefresh={load}
           keyboardShouldPersistTaps="handled"
+          ListFooterComponent={items.length ? <Text style={styles.hint}>Hold a video for a moment to delete it.</Text> : null}
           ListEmptyComponent={
             query || status ? (
               <EmptyState icon="magnify" title="No video found" note="Try a video ID like V000001, a patient ID like P000003, a mobile number or a name." />
@@ -104,7 +124,7 @@ export default function MyVideosScreen({navigation}) {
             )
           }
           renderItem={({item: v}) => (
-            <View style={styles.card}>
+            <Pressable style={styles.card} onLongPress={() => askDelete(v)} delayLongPress={700} accessibilityHint="Hold to delete this video">
               <View style={styles.head}>
                 <Text style={styles.code}>{v.code}</Text>
                 <View style={styles.status}>
@@ -129,7 +149,7 @@ export default function MyVideosScreen({navigation}) {
                   <Text style={styles.playText}>Play</Text>
                 </Pressable>
               )}
-            </View>
+            </Pressable>
           )}
         />
       )}
@@ -159,6 +179,7 @@ const styles = StyleSheet.create({
   line: {flexDirection: 'row', alignItems: 'center', marginTop: 6},
   lineText: {marginLeft: 8, color: colors.text, flex: 1, fontSize: 13},
   error: {color: colors.danger, marginTop: 8, fontSize: 13},
+  hint: {textAlign: 'center', color: colors.muted, fontSize: 12, marginTop: 4, marginBottom: 8},
   playBtn: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryDark, borderRadius: 24, height: 44, marginTop: 12},
   playText: {color: '#fff', fontWeight: '800', marginLeft: 8},
 });

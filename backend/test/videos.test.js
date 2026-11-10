@@ -66,7 +66,8 @@ describe('the doctor uploads a video with the form (patient id + doctor id)', ()
     const row = t.prisma.consultVideo.rows[0];
     // no visit: the video belongs to a patient and a doctor
     expect(row).toMatchObject({videoCode: created.code, patientCode: PATIENT, doctorId: DOCTOR, doctorName: 'Sample Doctor One', patientName: 'Asha Khan', patientMobile: '9876543210', fileName: `${created.id}.mp4`});
-    expect(row.userId).toBe(t.prisma.user.rows.find(u => u.mobile === '9876543210').id);
+    expect(row).not.toHaveProperty('userId'); // the long account id is not kept: the patient id is the link
+    expect(row).not.toHaveProperty('consentByUserId');
     expect(row.consentAt).toBeInstanceOf(Date);
     expect(fs.readFileSync(path.join(dir, `${created.id}.mp4`))).toEqual(mp4());
     // the table says where the file is and which address serves it
@@ -138,7 +139,7 @@ describe('the doctor uploads a video with the form (patient id + doctor id)', ()
 
 describe('staff find and play videos', () => {
   test('search by mobile, name, doctor, patient id, dates and status', async () => {
-    const {t, ask, upload, patient} = await world();
+    const {t, ask, upload} = await world();
     const {created} = await upload();
     const url = q => ask('get', `/videos${q}`).expect(200);
     const item = (await url('')).body.items[0];
@@ -152,7 +153,7 @@ describe('staff find and play videos', () => {
       sizeBytes: 4024,
       legalHold: false,
     });
-    for (const q of ['?q=9876', '?q=asha', `?q=${PATIENT}`, '?doctor=sample', '?doctorId=sample-doctor-one', `?patientId=${patient.user.id}`, '?status=uploaded']) {
+    for (const q of ['?q=9876', '?q=asha', `?q=${PATIENT}`, '?doctor=sample', '?doctorId=sample-doctor-one', `?patientCode=${PATIENT}`, '?status=uploaded']) {
       expect([q, (await url(q)).body.total]).toEqual([q, 1]);
     }
     const today = new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
@@ -315,7 +316,7 @@ describe('the patient id that staff can read out', () => {
     expect(code).toMatch(/^P\d{6}$/);
 
     const video = (await ask('get', '/videos').expect(200)).body.items[0];
-    expect(video.patient).toEqual({id: patient.user.id, code, name: 'Asha Khan', mobile: '9876543210'});
+    expect(video.patient).toEqual({code, name: 'Asha Khan', mobile: '9876543210'});
     expect(video.doctor).toEqual({id: 'sample-doctor-one', name: 'Sample Doctor One'});
     expect((await ask('get', `/videos/${created.id}`).expect(200)).body.patient.code).toBe(code);
 
@@ -544,5 +545,60 @@ describe('the address of a video and where it came from', () => {
     expect(item.source).toEqual({ip: expect.any(String), device: 'AtiyaHerbs-test-phone/1.0 (Android 12; CPH2095)'});
     // the address alone plays nothing: it needs the signed link
     await request(t.app).get(new URL(item.url).pathname).expect(401);
+  });
+});
+
+describe('the doctor deletes one of their own videos', () => {
+  test('the file is removed for good, the row stays as "deleted", the doctor no longer sees it, and the audit says who', async () => {
+    const {t, dir, doc, ask, upload, makeDoctor} = await world();
+    const keep = (await upload()).created;
+    const gone = (await upload()).created;
+    expect(fs.readdirSync(dir).sort()).toEqual([`${keep.id}.mp4`, `${gone.id}.mp4`].sort());
+
+    await doc('delete', `/videos/${gone.id}`).expect(204);
+    expect(fs.readdirSync(dir)).toEqual([`${keep.id}.mp4`]); // the file is really gone
+    const row = t.prisma.consultVideo.rows.find(v => v.id === gone.id);
+    expect(row).toMatchObject({removedBy: 'doctor'});
+    expect(row.deletedAt).toBeInstanceOf(Date);
+    expect((await doc('get', '/videos').expect(200)).body.map(v => v.id)).toEqual([keep.id]); // gone from the doctor's list
+    expect((await doc('get', `/videos?q=${gone.code}`).expect(200)).body).toEqual([]);
+
+    // staff still see the record, as "deleted" (not "archived": the policy did not do it), with who did it
+    const detail = (await ask('get', `/videos/${gone.id}`).expect(200)).body;
+    expect(detail.status).toBe('deleted');
+    expect(detail.audit.map(a => a.action)).toEqual(['delete', 'upload']);
+    expect(detail.audit[0].by).toMatchObject({name: 'Doctor'});
+    // it can no longer be played, by anybody
+    await ask('post', `/videos/${gone.id}/link`).send({action: 'play'}).expect(410);
+    await doc('post', `/videos/${gone.id}/link`).send({action: 'play'}).expect(410);
+    // and cannot be deleted twice
+    await doc('delete', `/videos/${gone.id}`).expect(404);
+
+    // another doctor cannot delete it, and a patient is not on the doctor side
+    const other = await makeDoctor('9000000007', 'sample-doctor-two');
+    await other('delete', `/videos/${keep.id}`).expect(404);
+    await doc('delete', '/videos/not-here').expect(404);
+    expect(fs.existsSync(path.join(dir, `${keep.id}.mp4`))).toBe(true);
+  });
+
+  test('a video on legal hold, or one that is still uploading, is not deleted', async () => {
+    const {t, dir, doc, ask, start, upload} = await world();
+    const held = (await upload()).created;
+    await ask('patch', `/videos/${held.id}`).send({legalHold: true}).expect(200);
+    await doc('delete', `/videos/${held.id}`).expect(409);
+    expect(fs.existsSync(path.join(dir, `${held.id}.mp4`))).toBe(true);
+    const pending = (await start().expect(201)).body; // still "uploading"
+    await doc('delete', `/videos/${pending.id}`).expect(409);
+    expect(t.prisma.consultVideo.rows.filter(v => v.deletedAt)).toHaveLength(0);
+  });
+
+  test('without a login, or as a patient, nothing can be deleted; a failed upload can be cleared', async () => {
+    const {t, patient, doc, upload} = await world();
+    const bad = await upload(Buffer.from('not a video, plain text bytes for the check'));
+    expect(bad.done.status).toBe(415);
+    await request(t.app).delete(`/api/v1/doctor/videos/${bad.created.id}`).expect(401);
+    await request(t.app).delete(`/api/v1/doctor/videos/${bad.created.id}`).set(t.bearer(patient)).expect(403);
+    await doc('delete', `/videos/${bad.created.id}`).expect(204); // a failed video can be removed from the list
+    expect((await doc('get', '/videos').expect(200)).body).toEqual([]);
   });
 });

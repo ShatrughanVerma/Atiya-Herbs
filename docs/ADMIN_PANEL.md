@@ -508,7 +508,7 @@ file is kept **inside MySQL**: it is cut into pieces of 1 MiB, one row each in `
 - The patient ID must belong to an existing account that is not blocked (an unknown ID or a blocked account is refused with 404). The doctor
   ID must be the doctor's own (another doctor's id is refused with 403).
 - The `consult_videos` table keeps the ids in readable columns: `videoCode` (`V000012`), `patientCode` (`P000123`),
-  `doctorId` (`dr-zafar-siddiqui`) and `doctorName`, `url` and `location` (where the file is), `uploadIp` and `uploadDevice` (where the upload came from), next to `userId` (the patient's long id). It has no visit columns.
+  `doctorId` (`dr-zafar-siddiqui`) and `doctorName`, `url` and `location` (where the file is), `uploadIp` and `uploadDevice` (where the upload came from). The patient is tied to a video by the patient id only (`patientCode`); there is no long account id and no visit column in the table.
 - The patient's name and mobile are taken from the patient account. There is no limit on how many videos a patient has.
 - Types: mp4, mov, 3gp, webm, mkv. The first bytes of the file are checked, so a text or image file renamed to `.mp4`
   fails. Biggest file: `VIDEO_MAX_MB` (default 500). A file bigger than the size the app announced fails.
@@ -527,7 +527,7 @@ file is kept **inside MySQL**: it is cut into pieces of 1 MiB, one row each in `
 
 | Call | Does |
 |---|---|
-| `GET /admin/videos` | Search. Query: `q` (patient name, mobile, a patient id `P000123` or a **video id `V000012`**), `doctor` (doctor name), `doctorId`, `patientId`, `patientCode`, `status` (`uploading`, `uploaded`, `failed`), `from`, `to` (YYYY-MM-DD, upload start day, Indian time), `page`, `pageSize`. Answer `{items, total, page, pageSize}`. Newest first |
+| `GET /admin/videos` | Search. Query: `q` (patient name, mobile, a patient id `P000123` or a **video id `V000012`**), `doctor` (doctor name), `doctorId`, `patientCode`, `status` (`uploading`, `uploaded`, `failed`), `from`, `to` (YYYY-MM-DD, upload start day, Indian time), `page`, `pageSize`. Answer `{items, total, page, pageSize}`. Newest first |
 | `GET /admin/videos/alerts` | `{failed, stuckUploading, missing, items: {failed: [...], stuckUploading: [...], missing: [...]}}`. `stuckUploading` = not finished after 60 minutes. `missing` = marked uploaded but the file is not on the disk |
 | `GET /admin/videos/:id` | One video plus its **audit history** (`audit: [{action, by: {id, name, mobile}, ip, at}]`, newest first; `by` is `null` when the archive policy did it) |
 | `POST /admin/videos/:id/link` | Body `{"action": "play"}` (videos can be played, **not downloaded**). Answer `{path, expiresAt}`. **Asking for the link is what is audited.** 404 if the file is missing, 410 if archived |
@@ -553,6 +553,7 @@ can find it), and `url` the full address that serves the video (the server addre
 1-hour link from `POST /admin/videos/:id/link`, so a copied address is useless to anyone else.
 
 `status` can also be `missing` (file gone) or `archived` (removed by the archive policy; the row stays).
+It is `deleted` when the doctor deleted it (long press in the app: `DELETE /doctor/videos/:id`; the file is removed for good, the row and its audit entry stay; not allowed on a legal hold or while uploading). 410 on play, like archived.
 
 ### 13.4 Playing in the panel
 

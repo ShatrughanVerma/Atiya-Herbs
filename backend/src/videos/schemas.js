@@ -23,7 +23,6 @@ const adminVideosQuerySchema = z
     q: safeText(1, 80).optional(),
     doctor: safeText(1, 80).optional(),
     doctorId: slug.optional(),
-    patientId: z.string().length(36).optional(),
     patientCode: z.string().regex(/^[Pp]\d{1,9}$/, 'Use the patient id like P000123.').optional(),
     status: z.enum(['uploading', 'uploaded', 'failed']).optional(),
     from: ymd.optional(),

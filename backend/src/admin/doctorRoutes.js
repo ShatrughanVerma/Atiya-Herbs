@@ -67,6 +67,11 @@ function createDoctorRoutes({prisma, requireAuth, requireRole, appointments, das
     res.status(201).json(await videos.start(req.doctor, req.user, req.body));
   });
   router.get('/videos', validateQuery(doctorVideosQuerySchema), async (req, res) => res.json(await videos.listMine(req.doctor, req.parsedQuery)));
+  // Deleting one of the doctor's own videos (a long press on it in the app)
+  router.delete('/videos/:id', checkId, createLimiter({limit: 30}), async (req, res) => {
+    await videos.removeMine(req.doctor, req.user, req.params.id, req.ip);
+    res.status(204).end();
+  });
   router.post('/videos/:id/link', checkId, createLimiter({limit: 60}), validateBody(doctorLinkSchema), async (req, res) => {
     res.json(await videos.issueLink(req.user, req.params.id, req.body.action, req.ip, {doctorId: req.doctor.id}));
   });
