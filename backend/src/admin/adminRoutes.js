@@ -62,7 +62,7 @@ function createAdminRoutes({requireAuth, requireRole, videos, appointments, doct
     res.json(await doctors.saveSchedule(req.user, req.params.id, req.body.timings));
   });
 
-  // Consultation videos: search, alerts, history, and short-lived play / download links
+  // Consultation videos: search, alerts, history, and short-lived play links
   router.get('/videos', validateQuery(adminVideosQuerySchema), async (req, res) => res.json(await videos.list(req.parsedQuery)));
   router.get('/videos/alerts', async (req, res) => res.json(await videos.alerts()));
   router.get('/videos/:id', checkId, async (req, res) => res.json(await videos.get(req.params.id)));

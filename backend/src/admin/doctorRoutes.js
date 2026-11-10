@@ -3,7 +3,7 @@ const {badRequest, forbidden} = require('../common/errors');
 const {idParam} = require('../common/schemas');
 const {createLimiter} = require('../common/rateLimit');
 const {validateBody, validateQuery} = require('../common/validate');
-const {startVideoSchema} = require('../videos/schemas');
+const {doctorLinkSchema, doctorVideosQuerySchema, startVideoSchema} = require('../videos/schemas');
 const {adminAppointmentsQuerySchema, confirmSchema, declineSchema, patientsQuerySchema, scheduleSchema} = require('./schemas');
 
 const checkId = (req, res, next) => (idParam.safeParse(req.params.id).success ? next() : next(badRequest('The id is not valid.')));
@@ -62,10 +62,13 @@ function createDoctorRoutes({prisma, requireAuth, requireRole, appointments, das
   router.post('/appointments/:id/decline', checkId, validateBody(declineSchema), async (req, res) => {
     res.json(await appointments.cancel(req.user, req.params.id, req.body.reason, scope(req)));
   });
-  // Videos of a visit: the doctor says the patient agreed, then sends the file the phone's camera made
-  router.get('/appointments/:id/videos', checkId, async (req, res) => res.json(await videos.listForAppointment(req.doctor, req.params.id)));
-  router.post('/appointments/:id/videos', checkId, createLimiter({limit: 20}), validateBody(startVideoSchema), async (req, res) => {
-    res.status(201).json(await videos.start(req.doctor, req.user, req.params.id, req.body));
+  // Videos: the form (patient id + doctor id + file), the doctor's own videos, and a short-lived link to watch one
+  router.post('/videos', createLimiter({limit: 20}), validateBody(startVideoSchema), async (req, res) => {
+    res.status(201).json(await videos.start(req.doctor, req.user, req.body));
+  });
+  router.get('/videos', validateQuery(doctorVideosQuerySchema), async (req, res) => res.json(await videos.listMine(req.doctor, req.parsedQuery)));
+  router.post('/videos/:id/link', checkId, createLimiter({limit: 60}), validateBody(doctorLinkSchema), async (req, res) => {
+    res.json(await videos.issueLink(req.user, req.params.id, req.body.action, req.ip, {doctorId: req.doctor.id}));
   });
   router.post('/videos/:id/file', checkId, createLimiter({limit: 20}), async (req, res) => {
     res.status(201).json(await videos.receive(req.doctor, req.user, req.params.id, req));

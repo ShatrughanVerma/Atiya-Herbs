@@ -15,7 +15,6 @@ export const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*[0-9])\S{8,64}$/;
 export const PASSWORD_MAX = 64;
 
 export const isEmail = value => EMAIL_REGEX.test(String(value).trim());
-export const isMobile = value => MOBILE_REGEX.test(String(value));
 
 export function validateLogin({username, password}) {
   const errors = {};

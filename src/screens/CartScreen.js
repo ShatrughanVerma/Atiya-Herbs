@@ -285,7 +285,6 @@ const styles = StyleSheet.create({
   couponInput: {flex: 1, marginHorizontal: 10, color: colors.text, fontSize: 15, paddingVertical: 6},
   couponApply: {color: colors.primary, fontWeight: '800'},
   couponError: {color: colors.danger, fontSize: 12, marginTop: 6},
-  couponHint: {color: colors.muted, fontSize: 11, marginTop: 6},
   couponApplied: {flexDirection: 'row', alignItems: 'center'},
   couponAppliedText: {flex: 1, marginLeft: 10},
   couponCode: {fontWeight: '800', color: colors.primary},

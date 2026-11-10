@@ -118,6 +118,10 @@ function createTable({defaults, unique = []}) {
       const found = sortRows(rows.filter(row => matches(row, where)), orderBy);
       return found.slice(skip, take === undefined ? undefined : skip + take).map(copy);
     },
+    async aggregate({where, _sum = {}}) {
+      const found = rows.filter(row => matches(row, where));
+      return {_sum: Object.fromEntries(Object.keys(_sum).map(field => [field, found.length ? found.reduce((total, row) => total + (row[field] ?? 0), 0) : null]))};
+    },
     async count({where} = {}) {
       return rows.filter(row => matches(row, where)).length;
     },
@@ -175,6 +179,7 @@ function createFakePrisma() {
   let creditEntrySeq = 0;
   let videoAuditSeq = 0;
   let userSeq = 0;
+  let videoNoSeq = 0;
   const now = () => new Date();
   const withId = extra => () => ({id: randomUUID(), ...extra});
   const tables = {
@@ -252,8 +257,9 @@ function createFakePrisma() {
     }),
     creditEntry: createTable({defaults: () => ({id: ++creditEntrySeq, appointmentId: null, createdAt: now()})}),
     consultVideo: createTable({
-      defaults: () => ({id: randomUUID(), userId: null, fileName: null, sizeBytes: null, durationSec: null, status: 'uploading', failedReason: null, consentAt: null, consentByUserId: null, uploadedAt: null, legalHold: false, deletedAt: null, createdAt: now()}),
+      defaults: () => ({id: randomUUID(), videoNo: ++videoNoSeq, userId: null, fileName: null, sizeBytes: null, durationSec: null, status: 'uploading', failedReason: null, consentAt: null, consentByUserId: null, uploadedAt: null, legalHold: false, deletedAt: null, createdAt: now()}),
     }),
+    videoChunk: createTable({defaults: () => ({})}),
     videoAudit: createTable({defaults: () => ({id: ++videoAuditSeq, userId: null, ip: null, createdAt: now()})}),
     callLog: createTable({
       unique: ['externalId'],

@@ -24,15 +24,19 @@ const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: int(4100, 1, 65535),
+    // The public address of this server, written in front of a video's url (for example https://api.atiyaherbs.com).
+    // Empty: http://localhost:<PORT>.
+    PUBLIC_API_URL: z.string().trim().url().optional().or(z.literal('')).default(''),
     // Number of reverse proxies in front of the server (Render = 1); needed to see the real client IP
     TRUST_PROXY: int(1, 0, 5),
     // Origins allowed to call the API from a browser (e.g. the admin panel). The mobile app needs none.
     CORS_ORIGINS: z.string().optional().default(''),
     // Doctor photo uploads (Cloudinary signed upload). All three or none.
     // Consultation videos: the folder they are kept in, the biggest file, and how long they are kept (days)
-    VIDEO_STORAGE_DIR: z.string().optional().default('./storage/videos'),
+    // Where the video files are kept: inside MySQL (default) or in a folder on the server
+    VIDEO_STORAGE: z.enum(['database', 'folder']).optional().default('database'),
+    VIDEO_STORAGE_DIR: z.string().optional().default('./storage/videos'), // only for VIDEO_STORAGE=folder
     VIDEO_MAX_MB: int(500, 1, 2000), // the database column holds up to about 2 GB
-    VIDEO_MAX_PER_APPOINTMENT: int(3, 1, 100),
     VIDEO_RETENTION_DAYS: int(365, 30, 3650),
     CLOUDINARY_CLOUD_NAME: z.string().optional().default(''),
     CLOUDINARY_API_KEY: z.string().optional().default(''),
@@ -99,6 +103,7 @@ function loadConfig(env = process.env) {
     corsOrigins: config.CORS_ORIGINS.split(',')
       .map(origin => origin.trim())
       .filter(Boolean),
+    publicApiUrl: (config.PUBLIC_API_URL || `http://localhost:${config.PORT}`).replace(/\/+$/, ''),
     isProduction: config.NODE_ENV === 'production',
   };
 }

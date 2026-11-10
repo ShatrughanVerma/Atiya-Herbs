@@ -31,6 +31,7 @@ import CallsScreen from '../calling/CallsScreen';
 import MeetingsScreen from '../meetings/MeetingsScreen';
 import DoctorTabs from '../doctor/DoctorTabs';
 import DaysTimesScreen from '../doctor/DaysTimesScreen';
+import MyVideosScreen from '../doctor/MyVideosScreen';
 import {useAuth} from '../context/AuthContext';
 import {useCart} from '../context/CartContext';
 import {colors} from '../theme';
@@ -128,6 +129,7 @@ export default function AppNavigator() {
         <Stack.Screen name="Appointments" component={AppointmentsScreen} />
         <Stack.Screen name="FindClinic" component={FindClinicScreen} />
         <Stack.Screen name="DaysTimes" component={DaysTimesScreen} />
+        <Stack.Screen name="MyVideos" component={MyVideosScreen} />
         <Stack.Screen name="Calls" component={CallsScreen} />
         <Stack.Screen name="Meetings" component={MeetingsScreen} />
       </Stack.Navigator>

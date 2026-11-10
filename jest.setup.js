@@ -48,3 +48,7 @@ jest.mock('react-native-keychain', () => {
     __store: store,
   };
 });
+
+// The video player is native code; tests only need something that can be drawn
+jest.mock('react-native-video', () => 'Video');
+

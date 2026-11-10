@@ -100,3 +100,6 @@ export function formatDuration(seconds) {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
 }
 
+// 'http://10.0.2.2:4100/api/v1' -> 'http://10.0.2.2:4100' (the part a link from the server is added to)
+export const originOf = url => (/^(https?:\/\/[^/]+)/.exec(String(url || '')) || [])[1] || '';
+

@@ -18,7 +18,7 @@ async function main() {
   const config = loadConfig();
   const prisma = createPrismaClient(config);
   try {
-    const videos = createVideosService({prisma, config, storage: createVideoStorage({dir: config.VIDEO_STORAGE_DIR})});
+    const videos = createVideosService({prisma, config, storage: createVideoStorage({kind: config.VIDEO_STORAGE, dir: config.VIDEO_STORAGE_DIR, prisma})});
     console.log(await videos.applyRetention());
   } finally {
     await prisma.$disconnect();

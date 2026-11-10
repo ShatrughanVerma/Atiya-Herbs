@@ -43,11 +43,14 @@ export const saveDoctorSchedule = timings =>
   authFetch('/doctor/schedule', { method: 'PUT', body: { timings } });
 
 // ---- videos of a visit. The doctor makes the video with the phone's own camera app, then sends it from here.
-// Step 1: say what is coming and that the patient agreed -> {id, status: 'uploading', maxBytes}
-export const startVideoUpload = (appointmentId, { mimeType, sizeBytes, durationSec }) =>
-  authFetch(`/doctor/appointments/${encodeURIComponent(appointmentId)}/videos`, {
+// Step 1: the form of the doctor: the patient id (P000123), the doctor id (their own), the file that is coming and that the
+// patient agreed -> {id, code: 'V000012', status: 'uploading', maxBytes}. No visit is involved.
+export const startVideoUpload = ({ patientId, doctorId, mimeType, sizeBytes, durationSec }) =>
+  authFetch('/doctor/videos', {
     method: 'POST',
     body: {
+      patientId,
+      doctorId,
       mimeType,
       consent: true,
       ...(sizeBytes && { sizeBytes }),
@@ -60,7 +63,13 @@ export function sendVideoFile(videoId, file, onProgress) {
   form.append('file', { uri: file.uri, type: file.type, name: file.name });
   return authUpload(`/doctor/videos/${encodeURIComponent(videoId)}/file`, form, onProgress);
 }
-// -> [{id, status: 'uploading' | 'uploaded' | 'failed' | 'archived', failedReason, sizeBytes, durationSec, createdAt, uploadedAt}]
-export const fetchAppointmentVideos = appointmentId =>
-  authFetch(`/doctor/appointments/${encodeURIComponent(appointmentId)}/videos`);
+
+// The doctor's own videos, newest first:
+// [{id, code: 'V000012', status, patientName, patientMobile, patientCode: 'P000123', sizeBytes, durationSec, ...}]
+// Smart search: q is a video id (V000012), a patient id (P000123), a mobile number or a name;
+// status is 'uploaded' | 'failed' | 'uploading'
+export const fetchMyVideos = ({ q, status } = {}) => authFetch(`/doctor/videos${query({ q, status })}`);
+// A link that plays one of the doctor's own videos for an hour -> {path, expiresAt}
+export const getVideoPlayLink = videoId =>
+  authFetch(`/doctor/videos/${encodeURIComponent(videoId)}/link`, { method: 'POST', body: { action: 'play' } });
 

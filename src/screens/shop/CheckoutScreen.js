@@ -168,7 +168,6 @@ export default function CheckoutScreen({navigation}) {
 
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: colors.card},
-  flex: {flex: 1},
   scroll: {padding: spacing.md, paddingBottom: spacing.lg},
   emptyNote: {textAlign: 'center', marginTop: 40, color: colors.muted},
   steps: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md},

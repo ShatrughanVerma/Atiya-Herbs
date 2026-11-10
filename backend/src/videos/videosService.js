@@ -1,11 +1,15 @@
 const {createHmac, createHash, timingSafeEqual} = require('node:crypto');
+const path = require('node:path');
 const {Transform} = require('node:stream');
 const busboy = require('busboy');
-const {HttpError, conflict, notFound} = require('../common/errors');
+const {HttpError, conflict, forbidden, notFound} = require('../common/errors');
 const {formatPatientCode, parsePatientCode} = require('../common/patientCode');
+const {formatVideoCode, parseVideoCode} = require('../common/videoCode');
 const {DAY_MS, istStartOfDay} = require('../consultation/consultationService');
 
-const LINK_SECONDS = 5 * 60; // a play or download link works for 5 minutes
+// A play link works for 1 hour: a long video, or one that is paused and played again, asks the server for more of the
+// file later, and each of those requests needs the link to still be valid.
+const LINK_SECONDS = 60 * 60;
 const STUCK_MINUTES = 60; // an upload that has not finished after this long is counted as failed
 
 // The video types a phone's camera makes. The extension is chosen by the server, never taken from the client.
@@ -22,12 +26,15 @@ const fail = (status, message) => new HttpError(status, message);
 // One row of the video list, as staff see it. `exists` says whether the file is on disk (null: not checked).
 const toVideo = (v, exists, patientNo) => ({
   id: v.id,
-  appointmentId: v.appointmentId,
-  appointmentNumber: v.appointmentNumber,
-  patient: {id: v.userId ?? null, code: formatPatientCode(patientNo), name: v.patientName, mobile: v.patientMobile},
+  code: v.videoCode ?? formatVideoCode(v.videoNo),
+  patient: {id: v.userId ?? null, code: v.patientCode ?? formatPatientCode(patientNo), name: v.patientName, mobile: v.patientMobile},
   doctor: {id: v.doctorId, name: v.doctorName},
   status: v.deletedAt ? 'archived' : v.status === 'uploaded' && exists === false ? 'missing' : v.status,
   failedReason: v.failedReason ?? null,
+  storage: v.storageKind ?? null,
+  location: v.location ?? null,
+  url: v.url ?? null,
+  source: {ip: v.uploadIp ?? null, device: v.uploadDevice ?? null},
   mimeType: v.mimeType,
   sizeBytes: v.sizeBytes ?? null,
   durationSec: v.durationSec ?? null,
@@ -37,11 +44,16 @@ const toVideo = (v, exists, patientNo) => ({
   legalHold: v.legalHold,
 });
 
-// What a doctor sees of their own video: no way to play it in the app, only that it is safely there
-const toDoctorVideo = v => ({
+// What a doctor sees of their own video: its id (V000012) and the patient (with the patient id), and its
+// state. `patientNo` is the patient's short number (P000123), looked up by the service.
+const toDoctorVideo = (v, patientNo) => ({
   id: v.id,
+  code: v.videoCode ?? formatVideoCode(v.videoNo),
   status: v.deletedAt ? 'archived' : v.status,
   failedReason: v.failedReason ?? null,
+  patientName: v.patientName,
+  patientMobile: v.patientMobile,
+  patientCode: formatPatientCode(patientNo),
   sizeBytes: v.sizeBytes ?? null,
   durationSec: v.durationSec ?? null,
   createdAt: v.createdAt.toISOString(),
@@ -50,11 +62,21 @@ const toDoctorVideo = v => ({
 
 function createVideosService({prisma, config, storage, now = () => new Date()}) {
   const maxBytes = config.VIDEO_MAX_MB * 1024 * 1024;
-  const maxPerAppointment = config.VIDEO_MAX_PER_APPOINTMENT;
+  // where a file is kept, written so that a person reading the table can find it
+  const locationOf = key => (config.VIDEO_STORAGE === 'folder' ? path.resolve(config.VIDEO_STORAGE_DIR, key) : `mysql://${config.DB_NAME}/video_chunks/${key}`);
   // the key of the link signatures: derived from the login secret, so there is nothing more to keep safe
   const linkKey = createHash('sha256').update(`video-link:${config.JWT_ACCESS_SECRET}`).digest();
 
   const sign = (id, action, expires) => createHmac('sha256', linkKey).update(`${id}|${action}|${expires}`).digest('hex');
+
+  // userId -> the patient's short number, for a list of videos
+  const patientNumbers = async userIds => {
+    const ids = [...new Set(userIds.filter(Boolean))];
+    if (!ids.length) {
+      return new Map();
+    }
+    return new Map((await prisma.user.findMany({where: {id: {in: ids}}})).map(u => [u.id, u.patientNo]));
+  };
 
   const record = (videoId, userId, action, ip) =>
     prisma.videoAudit.create({data: {videoId, userId: userId ?? null, action, ip: ip ? String(ip).slice(0, 64) : null}});
@@ -153,31 +175,29 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
     maxBytes,
 
     // ---- the doctor's side
-    // Starts an upload: the doctor says the patient agreed, and how big the file is.
-    async start(doctor, user, appointmentId, input) {
-      const a = await prisma.appointment.findUnique({where: {id: appointmentId}});
-      if (!a || a.doctorId !== doctor.id) {
-        throw notFound('Appointment not found.');
+    // Starts an upload. The form of the doctor gives the patient id (P000123) and the doctor id (their own), and the doctor
+    // says that the patient agreed to the recording. Nothing about a visit: the video belongs to a patient and a doctor.
+    async start(doctor, user, input) {
+      if (input.doctorId !== doctor.id) {
+        throw forbidden('This doctor ID is not yours. Use the doctor ID of your own login.');
       }
-      if (a.status !== 'booked' && a.status !== 'completed') {
-        throw conflict('A video can be added once the appointment is confirmed.');
+      const patientNo = parsePatientCode(input.patientId);
+      const patient = patientNo ? await prisma.user.findUnique({where: {patientNo}}) : null;
+      // any account that exists and is not blocked: every person who signs up has a patient id
+      if (!patient || patient.status === 'blocked') {
+        throw notFound('No patient found with that patient ID.');
       }
       if (input.sizeBytes !== undefined && input.sizeBytes > maxBytes) {
         throw fail(413, `A video can be at most ${config.VIDEO_MAX_MB} MB.`);
       }
-      const existing = await prisma.consultVideo.findMany({where: {appointmentId}});
-      if (existing.filter(v => v.status !== 'failed' && !v.deletedAt).length >= maxPerAppointment) {
-        throw conflict(`An appointment can have up to ${maxPerAppointment} videos.`);
-      }
       const video = await prisma.consultVideo.create({
         data: {
-          appointmentId,
-          appointmentNumber: a.number,
           doctorId: doctor.id,
           doctorName: doctor.name,
-          userId: a.userId ?? null,
-          patientName: a.patientName,
-          patientMobile: a.patientMobile,
+          userId: patient.id,
+          patientCode: formatPatientCode(patient.patientNo),
+          patientName: patient.name ?? '',
+          patientMobile: patient.mobile,
           mimeType: input.mimeType,
           sizeBytes: input.sizeBytes ?? null,
           durationSec: input.durationSec ?? null,
@@ -185,7 +205,10 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
           consentByUserId: user.id,
         },
       });
-      return {id: video.id, status: video.status, maxBytes};
+      // the video number is given by MySQL when the row is made; it is then written next to it as V000012
+      const code = formatVideoCode(video.videoNo);
+      await prisma.consultVideo.update({where: {id: video.id}, data: {videoCode: code}});
+      return {id: video.id, code, status: video.status, maxBytes};
     },
 
     // The file itself arrives here (multipart). It is checked while it is being written.
@@ -210,22 +233,35 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
         await prisma.consultVideo.update({where: {id: video.id}, data: {status: 'failed', failedReason: reason.slice(0, 200)}});
         throw error instanceof HttpError ? error : fail(400, 'The upload did not finish. Please try again.');
       }
-      const saved = await prisma.consultVideo.update({where: {id: video.id}, data: {status: 'uploaded', fileName: key, sizeBytes: bytes, uploadedAt: now()}});
+      const saved = await prisma.consultVideo.update({where: {id: video.id}, data: {status: 'uploaded', fileName: key, storageKind: config.VIDEO_STORAGE, location: locationOf(key), url: `${config.publicApiUrl}/api/v1/videos/stream/${video.id}`, uploadIp: req.ip ? String(req.ip).slice(0, 64) : null, uploadDevice: req.headers['user-agent'] ? String(req.headers['user-agent']).slice(0, 250) : null, sizeBytes: bytes, uploadedAt: now()}});
       await record(video.id, user.id, 'upload', req.ip);
-      return toDoctorVideo(saved);
+      return toDoctorVideo(saved, (await patientNumbers([saved.userId])).get(saved.userId));
     },
 
-    async listForAppointment(doctor, appointmentId) {
-      const a = await prisma.appointment.findUnique({where: {id: appointmentId}});
-      if (!a || a.doctorId !== doctor.id) {
-        throw notFound('Appointment not found.');
+    // The doctor's own latest videos (all their visits), newest first. Smart search (q): a video id (V000012), a patient
+    // id (P000123), a mobile number, a patient name or a visit number; `status` narrows it to one state.
+    async listMine(doctor, {q, status} = {}) {
+      const and = [{doctorId: doctor.id}, {deletedAt: null}];
+      if (status) {
+        and.push({status});
       }
-      const rows = await prisma.consultVideo.findMany({where: {appointmentId}, orderBy: [{createdAt: 'desc'}]});
-      return rows.map(toDoctorVideo);
+      const videoNo = parseVideoCode(q);
+      const codeNo = parsePatientCode(q);
+      if (videoNo) {
+        and.push({videoNo});
+      } else if (codeNo) {
+        const person = await prisma.user.findUnique({where: {patientNo: codeNo}});
+        and.push({userId: person ? person.id : '-'});
+      } else if (q) {
+        and.push({OR: [{patientName: {contains: q}}, {patientMobile: {contains: q}}]});
+      }
+      const rows = await prisma.consultVideo.findMany({where: {AND: and}, orderBy: [{createdAt: 'desc'}], take: 50});
+      const numbers = await patientNumbers(rows.map(v => v.userId));
+      return rows.map(v => toDoctorVideo(v, numbers.get(v.userId)));
     },
 
     // ---- staff side
-    async list({q, doctor, doctorId, patientId, patientCode, appointmentId, status, from, to, page, pageSize}) {
+    async list({q, doctor, doctorId, patientId, patientCode, status, from, to, page, pageSize}) {
       const and = [];
       if (doctorId) {
         and.push({doctorId});
@@ -236,9 +272,6 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
       if (patientId) {
         and.push({userId: patientId});
       }
-      if (appointmentId) {
-        and.push({appointmentId});
-      }
       if (status) {
         and.push({status});
       }
@@ -248,13 +281,16 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
       if (to) {
         and.push({createdAt: {lt: new Date(istStartOfDay(to).getTime() + DAY_MS)}});
       }
-      // a patient code (P000123) finds that person's videos
+      // a video id (V000012) finds that video; a patient id (P000123) finds that person's videos
+      const videoNo = parseVideoCode(q);
       const codeNo = parsePatientCode(patientCode ?? q);
-      if (codeNo) {
+      if (videoNo) {
+        and.push({videoNo});
+      } else if (codeNo) {
         const person = await prisma.user.findUnique({where: {patientNo: codeNo}});
         and.push({userId: person ? person.id : '-'});
       } else if (q) {
-        and.push({OR: [{patientName: {contains: q}}, {patientMobile: {contains: q}}, {appointmentNumber: {contains: q}}]});
+        and.push({OR: [{patientName: {contains: q}}, {patientMobile: {contains: q}}]});
       }
       const where = and.length ? {AND: and} : {};
       const [total, rows] = await Promise.all([
@@ -310,9 +346,13 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
       return this.get(id);
     },
 
-    // A link that plays or downloads one video for a few minutes. Asking for it is what is written in the audit log.
-    async issueLink(admin, id, action, ip) {
+    // A link that plays one video for a few minutes. Asking for it is what is written in the audit log.
+    // `scope` = {doctorId} when a doctor asks: another doctor's video is simply "not found"
+    async issueLink(admin, id, action, ip, scope) {
       const v = await load(id);
+      if (scope && v.doctorId !== scope.doctorId) {
+        throw notFound('Video not found.');
+      }
       if (v.deletedAt) {
         throw fail(410, 'This video was removed by the archive policy.');
       }
@@ -331,7 +371,7 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
       const expected = sign(id, action, expiresNumber);
       const given = Buffer.from(String(token ?? ''));
       const want = Buffer.from(expected);
-      if ((action !== 'play' && action !== 'download') || !Number.isInteger(expiresNumber) || given.length !== want.length || !timingSafeEqual(given, want)) {
+      if (action !== 'play' || !Number.isInteger(expiresNumber) || given.length !== want.length || !timingSafeEqual(given, want)) {
         throw fail(403, 'This link is not valid.');
       }
       if (expiresNumber < now().getTime() / 1000) {
@@ -360,8 +400,7 @@ function createVideosService({prisma, config, storage, now = () => new Date()}) 
         size: info.size,
         range,
         mimeType: MIME_BY_EXT[v.fileName.split('.').pop()] ?? 'application/octet-stream',
-        download: action === 'download',
-        fileName: `video-${v.appointmentNumber}-${v.id.slice(0, 8)}.${v.fileName.split('.').pop()}`,
+        fileName: `video-${v.videoCode ?? formatVideoCode(v.videoNo) ?? 'file'}-${v.id.slice(0, 8)}.${v.fileName.split('.').pop()}`,
       };
     },
 

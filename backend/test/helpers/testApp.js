@@ -12,6 +12,7 @@ const BASE_ENV = {
   DB_PASSWORD: 'test',
   JWT_ACCESS_SECRET: 'test-access-secret-test-access-secret-0123456789',
   OTP_PEPPER: 'test-otp-pepper-test-otp-pepper-0123456789',
+  VIDEO_STORAGE: 'folder', // the video tests read the files on disk; the database kind has its own tests
   RATE_LIMIT_MAX: '1000', // the tests send many requests; the rate-limit tests lower this on purpose
 };
 

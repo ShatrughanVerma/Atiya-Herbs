@@ -1,6 +1,53 @@
-# Free hosting for the call backend on Render (https://render.com): no card needed.
-# Steps: docs/CALLS_LIVEKIT.md ("Host the backend")
+# Hosting on Render (https://render.com).
+#  - atiyaherbs-api:   the main Atiya Herbs API (backend/): login, shop, doctors, appointments, videos. Steps: docs/DEPLOY_BACKEND.md
+#  - atiyaherbs-calls: the call backend (call-backend/): a separate server for voice / video calls and meetings
 services:
+  - type: web
+    name: atiyaherbs-api
+    runtime: docker
+    # "free" sleeps after 15 minutes without a request and takes about a minute to wake up: fine for a trial.
+    # For real users use "starter" (always on).
+    plan: starter
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4100"
+      - key: TRUST_PROXY
+        value: "1"
+      # production does not allow OTP_SENDER=dev; password login needs no OTP
+      - key: OTP_SENDER
+        value: sms
+      - key: DB_SSL
+        value: "true"
+      - key: VIDEO_STORAGE
+        value: database
+      # Everything below is typed in Render's dashboard (Environment), never in this file or in a chat
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: OTP_PEPPER
+        sync: false
+      - key: INTERNAL_API_KEY
+        sync: false
+      # The public address of this API, e.g. https://atiyaherbs-api.onrender.com (written in front of a video's url)
+      - key: PUBLIC_API_URL
+        sync: false
+      # The address of the admin panel, e.g. https://admin.atiyaherbs.com (comma separated for more)
+      - key: CORS_ORIGINS
+        sync: false
   - type: web
     name: atiyaherbs-calls
     runtime: docker
@@ -29,7 +76,7 @@ services:
       # Call links that open in a browser (Agora). Making a link needs this secret in the x-invite-key header.
       - key: INVITE_KEY
         sync: false
-      # Call recording (optional, see docs/CALL_RECORDING.md). Leave empty to switch recording off.
+      # Call recording (optional). Leave empty to switch recording off.
       - key: R2_ENDPOINT
         sync: false
       - key: R2_ACCESS_KEY_ID

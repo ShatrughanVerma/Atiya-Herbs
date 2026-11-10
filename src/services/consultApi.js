@@ -14,7 +14,6 @@ const query = params => {
 // -> [{id, name, city, ..., distanceKm?}]
 export const fetchClinics = ({ city, q, lat, lng } = {}) =>
   request(`/clinics${query({ city, q, lat, lng })}`);
-export const fetchClinic = id => request(`/clinics/${encodeURIComponent(id)}`);
 
 // -> {items, total, page, pageSize}
 export const fetchDoctors = ({

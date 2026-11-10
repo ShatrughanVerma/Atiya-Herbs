@@ -8,8 +8,6 @@ import { authFetch } from './session';
 export const fetchCategories = () => request('/categories');
 export const fetchConcerns = () => request('/concerns');
 export const fetchBanners = () => request('/banners');
-export const fetchProduct = id =>
-  request(`/products/${encodeURIComponent(id)}`);
 
 const PAGE_SIZE = 50; // the most the server gives in one page
 const MAX_PAGES = 20; // 1000 products: far more than the shop has
@@ -44,7 +42,6 @@ export const deleteCartItem = productId =>
   authFetch(`/cart/items/${encodeURIComponent(productId)}`, {
     method: 'DELETE',
   });
-export const clearServerCart = () => authFetch('/cart', { method: 'DELETE' });
 // items: [{productId, quantity}] (a guest's local cart, sent once after login)
 export const mergeCart = items =>
   authFetch('/cart/merge', { method: 'POST', body: { items } });

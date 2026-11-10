@@ -3,8 +3,6 @@ import {ActivityIndicator, Alert, FlatList, Linking, Modal, Pressable, ScrollVie
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import EmptyState from '../components/shop/EmptyState';
-import VideoUploadSheet from './VideoUploadSheet';
-import {pickVideoFromGallery} from './pickVideo';
 import {
   completeAppointmentAsDoctor,
   confirmAppointmentAsDoctor,
@@ -145,7 +143,6 @@ export default function DoctorAppointmentsScreen({navigation, route}) {
   const [state, setState] = useState('loading');
   const [timeFor, setTimeFor] = useState(null);
   const [declineFor, setDeclineFor] = useState(null);
-  const [videoFor, setVideoFor] = useState(null); // {appointment, video}
   const [busy, setBusy] = useState(false);
 
   // the Home cards open this tab with a filter
@@ -181,14 +178,6 @@ export default function DoctorAppointmentsScreen({navigation, route}) {
       setTimeFor(null);
       setDeclineFor(null);
       load();
-    }
-  };
-
-  // the gallery opens at once; then the sheet asks for the patient's agreement and uploads
-  const startVideo = async a => {
-    const video = await pickVideoFromGallery();
-    if (video) {
-      setVideoFor({appointment: a, video});
     }
   };
 
@@ -281,12 +270,6 @@ export default function DoctorAppointmentsScreen({navigation, route}) {
                     </Pressable>
                   </View>
                 )}
-                {(a.status === 'booked' || a.status === 'completed') && (
-                  <Pressable style={styles.videoBtn} onPress={() => startVideo(a)} accessibilityRole="button" accessibilityLabel={`Upload video for ${a.patientName}`}>
-                    <Icon name="video-plus-outline" size={20} color={colors.primaryDark} />
-                    <Text style={styles.videoBtnText}>Upload video</Text>
-                  </Pressable>
-                )}
                 {a.status === 'booked' && started && (
                   <View style={styles.actions}>
                     <Pressable style={[styles.btn, styles.btnFill]} disabled={busy} onPress={() => run(() => completeAppointmentAsDoctor(a.id))} accessibilityRole="button">
@@ -301,7 +284,6 @@ export default function DoctorAppointmentsScreen({navigation, route}) {
       )}
 
       {!!timeFor && <ConfirmTimeSheet appointment={timeFor} onClose={() => setTimeFor(null)} onChosen={startsAt => run(() => confirmAppointmentAsDoctor(timeFor.id, startsAt))} />}
-      {!!videoFor && <VideoUploadSheet appointment={videoFor.appointment} video={videoFor.video} onClose={() => setVideoFor(null)} />}
       {!!declineFor && <DeclineSheet appointment={declineFor} onClose={() => setDeclineFor(null)} onDecline={reason => run(() => declineAppointment(declineFor.id, reason))} />}
     </SafeAreaView>
   );
@@ -334,8 +316,6 @@ const styles = StyleSheet.create({
   cancelReason: {color: colors.danger, marginTop: 8},
   fee: {color: colors.muted, marginTop: 10, fontSize: 13},
   actions: {flexDirection: 'row', marginTop: 12},
-  videoBtn: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 12, height: 44, borderRadius: 22, backgroundColor: colors.primaryLight},
-  videoBtnText: {color: colors.primaryDark, fontWeight: '700', marginLeft: 8},
   btn: {flex: 1, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center'},
   btnOutline: {borderWidth: 1.5, borderColor: colors.primaryDark, marginRight: 10, backgroundColor: '#fff'},
   btnOutlineText: {color: colors.primaryDark, fontWeight: '700'},

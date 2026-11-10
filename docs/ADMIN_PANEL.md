@@ -494,15 +494,22 @@ Panel (`DoctorFormPage.jsx`, edit mode), a "Doctor login" box with two states:
 ## 13. Visit videos (built)
 
 The **doctor** records a video of the visit with the phone's own camera app, and uploads it from the app
-(Appointment -> Upload video). The patient does nothing and cannot see it. The video **file** is kept in a private
-folder of the server (`VIDEO_STORAGE_DIR`, default `backend/storage/videos`, not in git); MySQL keeps only the details
-(`consult_videos`) and the history (`video_audit`). The folder must be included in the server backup.
+(Appointment -> Upload video). The patient does nothing and cannot see it. By default (`VIDEO_STORAGE=database`) the video
+file is kept **inside MySQL**: it is cut into pieces of 1 MiB, one row each in `video_chunks` (`fileKey`, `seq`, `size`,
+`data`), so it is never held in memory whole and MySQL's `max_allowed_packet` is no problem. The details are in
+`consult_videos` and the history in `video_audit`. Playing from the middle reads only the pieces that are needed.
+`VIDEO_STORAGE=folder` keeps the files in a private server folder (`VIDEO_STORAGE_DIR`) instead.
 
 ### 13.1 Rules
 
-- Only for a `booked` (confirmed) or `completed` appointment of that doctor; up to 3 videos per appointment (failed
-  attempts do not count).
-- The doctor must confirm "the patient agreed" before the upload (`consent: true`); the time and the doctor are stored.
+- **No appointment is involved.** A video does not need a visit, and a doctor does not have to confirm anything first. The
+  upload form has two required fields: the **Patient ID** (`P000123`) and the **Doctor ID** (the doctor's own, filled in
+  and locked), then the video and the patient's agreement (`consent: true`).
+- The patient ID must belong to an existing account that is not blocked (an unknown ID or a blocked account is refused with 404). The doctor
+  ID must be the doctor's own (another doctor's id is refused with 403).
+- The `consult_videos` table keeps the ids in readable columns: `videoCode` (`V000012`), `patientCode` (`P000123`),
+  `doctorId` (`dr-zafar-siddiqui`) and `doctorName`, `url` and `location` (where the file is), `uploadIp` and `uploadDevice` (where the upload came from), next to `userId` (the patient's long id). It has no visit columns.
+- The patient's name and mobile are taken from the patient account. There is no limit on how many videos a patient has.
 - Types: mp4, mov, 3gp, webm, mkv. The first bytes of the file are checked, so a text or image file renamed to `.mp4`
   fails. Biggest file: `VIDEO_MAX_MB` (default 500). A file bigger than the size the app announced fails.
 - A failed or half-finished upload leaves nothing on the disk and is shown as `failed`.
@@ -511,42 +518,51 @@ folder of the server (`VIDEO_STORAGE_DIR`, default `backend/storage/videos`, not
 
 | Call | Body | Answer |
 |---|---|---|
-| `POST /doctor/appointments/:id/videos` | `{mimeType, sizeBytes?, durationSec?, consent: true}` | `201 {id, status: "uploading", maxBytes}` |
-| `POST /doctor/videos/:id/file` | multipart, one field `file` | `201 {id, status: "uploaded", sizeBytes, ...}` |
-| `GET /doctor/appointments/:id/videos` | - | the doctor's videos of that appointment |
+| `POST /doctor/videos` | `{patientId: "P000123", doctorId: "dr-zafar-siddiqui", mimeType, consent: true, sizeBytes?, durationSec?}` | `201 {id, code: "V000012", status: "uploading", maxBytes}`. 404 for an unknown patient ID, 403 when `doctorId` is not the doctor's own, 400 without `consent: true` |
+| `POST /doctor/videos/:id/file` | multipart, one field `file` | `201 {id, code, status: "uploaded", patientName, patientCode, sizeBytes, ...}` |
+| `GET /doctor/videos` | query: `q` (smart search: video id `V000012`, patient id `P000123`, mobile or patient name), `status` (`uploaded`, `failed`, `uploading`) | the doctor's own latest 50 videos, each with `code`, `patientName`, `patientMobile`, `patientCode`, `status`, size and length |
+| `POST /doctor/videos/:id/link` | `{"action": "play"}` | `{path, expiresAt}`: a 1-hour link to watch the doctor's **own** video (another doctor's video is 404; no download). The play is written to the audit log |
 
 ### 13.3 Admin API (for the panel)
 
 | Call | Does |
 |---|---|
-| `GET /admin/videos` | Search. Query: `q` (patient name, mobile or appointment number), `doctor` (doctor name), `doctorId`, `patientId`, `appointmentId`, `status` (`uploading`, `uploaded`, `failed`), `from`, `to` (YYYY-MM-DD, upload start day, Indian time), `page`, `pageSize`. Answer `{items, total, page, pageSize}`. Newest first |
+| `GET /admin/videos` | Search. Query: `q` (patient name, mobile, a patient id `P000123` or a **video id `V000012`**), `doctor` (doctor name), `doctorId`, `patientId`, `patientCode`, `status` (`uploading`, `uploaded`, `failed`), `from`, `to` (YYYY-MM-DD, upload start day, Indian time), `page`, `pageSize`. Answer `{items, total, page, pageSize}`. Newest first |
 | `GET /admin/videos/alerts` | `{failed, stuckUploading, missing, items: {failed: [...], stuckUploading: [...], missing: [...]}}`. `stuckUploading` = not finished after 60 minutes. `missing` = marked uploaded but the file is not on the disk |
 | `GET /admin/videos/:id` | One video plus its **audit history** (`audit: [{action, by: {id, name, mobile}, ip, at}]`, newest first; `by` is `null` when the archive policy did it) |
-| `POST /admin/videos/:id/link` | Body `{"action": "play"}` or `{"action": "download"}`. Answer `{path, expiresAt}`. **Asking for the link is what is audited.** 404 if the file is missing, 410 if archived |
+| `POST /admin/videos/:id/link` | Body `{"action": "play"}` (videos can be played, **not downloaded**). Answer `{path, expiresAt}`. **Asking for the link is what is audited.** 404 if the file is missing, 410 if archived |
 | `PATCH /admin/videos/:id` | Body `{"legalHold": true}`. A held video is never deleted by the archive policy |
 
 A video in the list:
 ```json
 {
-  "id": "…", "appointmentId": "…", "appointmentNumber": "AP2611…",
+  "id": "…", "code": "V000012",
   "patient": {"id": "…", "name": "Asha Khan", "mobile": "9876543210"},
   "doctor": {"id": "dr-zafar-siddiqui", "name": "Dr. Zafar Siddiqui"},
   "status": "uploaded",
-  "failedReason": null, "mimeType": "video/mp4", "sizeBytes": 52428800, "durationSec": 95,
+  "failedReason": null,
+  "storage": "database", "location": "mysql://atiyaherbs/video_chunks/<id>.mp4",
+  "url": "https://api.atiyaherbs.com/api/v1/videos/stream/<id>",
+  "source": {"ip": "203.0.113.7", "device": "Dalvik/2.1.0 (Linux; U; Android 12; CPH2095 ...)"},
+  "mimeType": "video/mp4", "sizeBytes": 52428800, "durationSec": 95,
   "consentAt": "…", "uploadedAt": "…", "createdAt": "…", "legalHold": false
 }
 ```
+`storage` is where the file is kept (`database` or `folder`), `location` the exact place (written in the table so a person
+can find it), and `url` the full address that serves the video (the server address from `PUBLIC_API_URL` in `.env`, then `/api/v1/videos/stream/<id>`; empty `PUBLIC_API_URL` gives `http://localhost:<PORT>`). `source` says where the upload came from: the network address (`ip`) and the phone / app (`device`, its user agent). The `url` alone plays nothing: it needs the signed,
+1-hour link from `POST /admin/videos/:id/link`, so a copied address is useless to anyone else.
+
 `status` can also be `missing` (file gone) or `archived` (removed by the archive policy; the row stays).
 
-### 13.4 Playing and downloading in the panel
+### 13.4 Playing in the panel
 
 1. `POST /admin/videos/:id/link {action: "play"}` -> `{path: "/api/v1/videos/stream/<id>?a=play&e=<time>&t=<signature>", expiresAt}`.
 2. Use the link as the source of a player. The path starts at the API's address, so build the full address as
    `new URL(path, API_ORIGIN)` where `API_ORIGIN` is the part of `VITE_API_BASE_URL` before `/api/v1`:
-   `<video controls src={fullUrl} />`. The link needs no login header, works for **5 minutes** for that one video and
+   `<video controls src={fullUrl} />`. The link needs no login header, works for **1 hour** for that one video and
    that one action, and supports jumping around in the video (Range).
-3. For download use `action: "download"`: open the link (`window.location = fullUrl`) and the browser saves the file.
-4. When the player gets an error (the link expired), ask for a new link.
+3. Videos can only be played, not downloaded: there is no download action (a link with another action is refused).
+4. A long video, or one that is paused for a while, asks the server for more of the file later, so the link must still be valid then (that is why it lives 1 hour). When the player gets an error (the link ran out), ask for a new link and carry on from the same second (`currentTime`): the `VideoDrawer` of the panel does this by itself.
 
 ### 13.5 Archive policy
 
@@ -561,33 +577,15 @@ Run `npm run videos:archive` once a day on the server (a scheduled job). It
 |---|---|
 | `api/videos.js` (new) | `listVideos`, `getVideo`, `getVideoAlerts`, `getVideoLink(id, action)`, `setLegalHold(id, bool)` |
 | `pages/videos/VideosPage.jsx` (new) | Filters: search box (`q`), doctor, status, date range. Table: appointment no., patient (name, mobile), doctor, date, duration, size, status badge. Red badge for `failed` and `missing` |
-| `pages/videos/VideoDrawer.jsx` (new) | Details, `<video>` player (after asking for a play link), **Download** button, legal-hold switch, audit history table |
+| `pages/videos/VideoDrawer.jsx` (new) | Details, `<video>` player (after asking for a play link), legal-hold switch, audit history table |
 | `Sidebar.jsx`, `App.jsx` | New menu item "Videos" and route `/videos` (admin only) |
 | `DashboardPage.jsx` | A card "Video alerts" = `failed + stuckUploading + missing` from `/admin/videos/alerts`, linking to `/videos?status=failed` |
 | `StatusBadge.jsx` | New statuses: uploaded (green), uploading (amber), failed and missing (red), archived (grey) |
 
 ### 13.7 Before it goes live
 
-- On Render the server's disk is wiped at every restart: use a **Persistent Disk** for `VIDEO_STORAGE_DIR`, or move the
-  four storage functions in `src/videos/storage.js` to cloud storage (S3). Nothing else needs to change.
-- Take a backup of the video folder together with the database.
+- Videos are in MySQL, so the **database grows with every video** (a 500 MB video is about 500 MB of MySQL). Plan the
+  disk of the database server and its backups for that, and use `VIDEO_RETENTION_DAYS` and `npm run videos:archive`.
+- A cloud MySQL plan has a storage limit; if videos make it too big, set `VIDEO_STORAGE=folder` with a persistent disk, or
+  move the four storage functions in `src/videos/storage.js` to cloud storage (S3). Nothing else needs to change.
 - State the recording, who can see it and how long it is kept in the privacy policy (consent text, DPDP Act).
-
----
-
-## 14. Doctor id and patient id in the panel
-
-Every person has a short running **patient id** written like `P000123` (the `patientNo` column of `users`; the long
-UUID stays the real key). Staff read it out and search by it. Doctors already have a readable id (`dr-zafar-siddiqui`).
-
-| Where | Fields |
-|---|---|
-| Appointment (admin list and details) | `patientId` (long id), **`patientCode`** (`P000123`), `doctor.id` |
-| Video (list and details) | `patient.id`, **`patient.code`**, `doctor.id` |
-
-Search: in `/admin/appointments` and `/admin/videos` the search box `q` understands a patient id (`P000123` or
-`p123`), and there are also `patientCode` and `patientId` filters. A code that belongs to nobody finds nothing.
-
-Panel (`AppointmentsPage.jsx`, `AppointmentDrawer.jsx`, `VideosPage.jsx`, `VideoDrawer.jsx`): add two columns/rows,
-**Patient ID** (`patientCode`, with the mobile under it) and **Doctor ID** (`doctor.id`, with the name). Put a small
-copy button next to each id. The search placeholder can say "Name, mobile, appointment no. or patient ID (P000123)".

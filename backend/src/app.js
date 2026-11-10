@@ -95,7 +95,7 @@ function createApp({config, prisma, sender, logger = console}) {
   const orders = createOrdersService({prisma, audit});
   const history = createHistoryService({prisma});
   const consultation = createConsultationService({prisma, audit});
-  const videos = createVideosService({prisma, config, storage: createVideoStorage({dir: config.VIDEO_STORAGE_DIR})});
+  const videos = createVideosService({prisma, config, storage: createVideoStorage({kind: config.VIDEO_STORAGE, dir: config.VIDEO_STORAGE_DIR, prisma})});
   const adminParts = {
     videos,
     appointments: createAppointmentsAdmin({prisma, audit, consultation}),
@@ -120,7 +120,7 @@ function createApp({config, prisma, sender, logger = console}) {
   app.use('/api/v1/admin', createAdminRoutes({requireAuth, requireRole, ...adminParts}));
   // The doctor's own side (their requests): the Doctor role, and only their own appointments
   app.use('/api/v1/doctor', createDoctorRoutes({prisma, requireAuth, requireRole, appointments: adminParts.appointments, dashboard: adminParts.dashboard, doctors: adminParts.doctors, videos}));
-  // Plays or downloads a video for a short-lived signed link that staff were given (no login header is needed)
+  // Plays a video for a short-lived signed link that staff were given (no login header is needed)
   app.use('/api/v1/videos', createStreamRoutes({videos}));
   // Only call-backend uses these, and only when a shared secret is configured; otherwise the paths do not exist
   if (config.INTERNAL_API_KEY) {

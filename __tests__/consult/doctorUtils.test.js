@@ -77,3 +77,12 @@ describe('video helpers', () => {
     expect(isSupportedVideo(undefined)).toBe(false);
   });
 });
+
+describe('the address of the server', () => {
+  const {originOf} = require('../../src/utils/doctor');
+  test('only the part before /api/v1 is kept', () => {
+    expect(originOf('http://10.0.2.2:4100/api/v1')).toBe('http://10.0.2.2:4100');
+    expect(originOf('https://api.atiyaherbs.com/api/v1')).toBe('https://api.atiyaherbs.com');
+    expect(originOf('')).toBe('');
+  });
+});

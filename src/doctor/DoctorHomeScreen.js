@@ -3,9 +3,7 @@ import {ActivityIndicator, Alert, Image, Pressable, RefreshControl, ScrollView, 
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import EmptyState from '../components/shop/EmptyState';
-import AppointmentPickerSheet from './AppointmentPickerSheet';
-import VideoUploadSheet from './VideoUploadSheet';
-import {pickVideoFromGallery} from './pickVideo';
+import VideoUploadForm from './VideoUploadForm';
 import {fetchDoctorAppointments, fetchDoctorDashboard, fetchDoctorMe} from '../services/doctorApi';
 import {typeLabel, formatTime, todayYmd} from '../utils/consult';
 import {doctorSubtitle, greetingFor} from '../utils/doctor';
@@ -15,7 +13,7 @@ import {colors, spacing} from '../theme';
 const TILES = [
   {id: 'rx', label: 'Rx templates', icon: 'file-document-outline', soon: true},
   {id: 'bookings', label: 'Clinic bookings', icon: 'calendar-month-outline', tab: 'Appointment'},
-  {id: 'records', label: 'Visit records', icon: 'heart-outline', soon: true},
+  {id: 'videos', label: 'Consult videos', icon: 'play-box-multiple-outline', screen: 'MyVideos'},
   {id: 'stock', label: 'Clinic stock', icon: 'cube-outline', soon: true},
   {id: 'bills', label: 'Bills', icon: 'wallet-outline', soon: true},
   {id: 'coupons', label: 'Coupons', icon: 'tag-outline', soon: true},
@@ -29,8 +27,7 @@ export default function DoctorHomeScreen({navigation}) {
   const [today, setToday] = useState([]);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [refreshing, setRefreshing] = useState(false);
-  const [chosenVideo, setChosenVideo] = useState(null); // the video picked from the gallery
-  const [videoFor, setVideoFor] = useState(null); // the appointment it belongs to
+  const [uploadOpen, setUploadOpen] = useState(false); // the upload form
 
   const load = useCallback(async () => {
     try {
@@ -58,14 +55,6 @@ export default function DoctorHomeScreen({navigation}) {
     setRefreshing(true);
     await load();
     setRefreshing(false);
-  };
-
-  // The button opens the phone's gallery at once; then the doctor says which visit the video is of
-  const startVideo = async () => {
-    const video = await pickVideoFromGallery();
-    if (video) {
-      setChosenVideo(video);
-    }
   };
 
   const openTile = tile => {
@@ -155,9 +144,9 @@ export default function DoctorHomeScreen({navigation}) {
           ))}
         </View>
 
-        <Pressable style={styles.uploadBtn} onPress={startVideo} accessibilityRole="button" accessibilityLabel="Upload visit video">
+        <Pressable style={styles.uploadBtn} onPress={() => setUploadOpen(true)} accessibilityRole="button" accessibilityLabel="Upload Consultation Video">
           <Icon name="video-plus-outline" size={24} color="#fff" />
-          <Text style={styles.uploadText}>Upload visit video</Text>
+          <Text style={styles.uploadText}>Upload Consultation Video</Text>
         </Pressable>
 
         <View style={styles.tiles}>
@@ -200,22 +189,7 @@ export default function DoctorHomeScreen({navigation}) {
           ))
         )}
       </ScrollView>
-      {!!chosenVideo && !videoFor && (
-        <AppointmentPickerSheet
-          onClose={() => setChosenVideo(null)}
-          onPick={a => setVideoFor(a)}
-        />
-      )}
-      {!!chosenVideo && !!videoFor && (
-        <VideoUploadSheet
-          appointment={videoFor}
-          video={chosenVideo}
-          onClose={() => {
-            setVideoFor(null);
-            setChosenVideo(null);
-          }}
-        />
-      )}
+      {uploadOpen && <VideoUploadForm doctorId={me.id} onClose={() => setUploadOpen(false)} />}
     </View>
   );
 }
