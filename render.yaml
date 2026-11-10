@@ -6,8 +6,8 @@ services:
     name: atiyaherbs-api
     runtime: docker
     # "free" sleeps after 15 minutes without a request and takes about a minute to wake up: fine for a trial.
-    # For real users use "starter" (always on).
-    plan: starter
+    # For real users change this to "starter" (always on).
+    plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /api/v1/health
