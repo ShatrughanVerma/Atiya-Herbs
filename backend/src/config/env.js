@@ -36,6 +36,9 @@ const schema = z
     // Where the video files are kept: inside MySQL (default) or in a folder on the server
     VIDEO_STORAGE: z.enum(['database', 'folder']).optional().default('database'),
     VIDEO_STORAGE_DIR: z.string().optional().default('./storage/videos'), // only for VIDEO_STORAGE=folder
+    // Optional: every uploaded video is also copied as a normal file into this folder, and its path is written to the
+    // video's videoFilePath. The video stays in VIDEO_STORAGE (that is what plays); the folder is a readable copy.
+    VIDEO_COPY_DIR: z.string().optional(),
     VIDEO_MAX_MB: int(500, 1, 2000), // the database column holds up to about 2 GB
     VIDEO_RETENTION_DAYS: int(365, 30, 3650),
     CLOUDINARY_CLOUD_NAME: z.string().optional().default(''),

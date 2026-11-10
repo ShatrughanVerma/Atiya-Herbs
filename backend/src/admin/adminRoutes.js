@@ -73,6 +73,10 @@ function createAdminRoutes({requireAuth, requireRole, videos, appointments, doct
     res.json(await videos.setLegalHold(req.user, req.params.id, req.body.legalHold, req.ip));
   });
 
+  router.delete('/videos/:id', checkId, createLimiter({limit: 60}), async (req, res) => {
+    res.json(await videos.removeVideo(req.user, req.params.id, req.ip));
+  });
+
   router.get('/clinics', async (req, res) => res.json(await clinics.list()));
   router.post('/clinics', validateBody(createClinicSchema), async (req, res) => res.status(201).json(await clinics.create(req.user, req.body)));
   router.patch('/clinics/:id', checkId, validateBody(updateClinicSchema), async (req, res) => {

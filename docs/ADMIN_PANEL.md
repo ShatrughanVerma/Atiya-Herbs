@@ -507,8 +507,13 @@ file is kept **inside MySQL**: it is cut into pieces of 1 MiB, one row each in `
   and locked), then the video and the patient's agreement (`consent: true`).
 - The patient ID must belong to an existing account that is not blocked (an unknown ID or a blocked account is refused with 404). The doctor
   ID must be the doctor's own (another doctor's id is refused with 403).
-- The `consult_videos` table keeps the ids in readable columns: `videoCode` (`V000012`), `patientCode` (`P000123`),
-  `doctorId` (`dr-zafar-siddiqui`) and `doctorName`, `url` and `location` (where the file is), `uploadIp` and `uploadDevice` (where the upload came from). The patient is tied to a video by the patient id only (`patientCode`); there is no long account id and no visit column in the table.
+- The `consult_videos` table has only these columns: `videoId` (`V000012`), `sessionId` (`S000012`), `consultationDateTime`
+  (the time the upload started), `doctorId` (`dr-zafar-siddiqui`), `patientName`, `patientPhone`, `videoFileName`,
+  `videoFilePath` (where the file is), `status`, `createdOn` and `createdBy` (the doctor id), plus its two keys `id` and `video_no`.
+  The patient is tied to a video by the patient's mobile number. The patient id (`P000123`), the doctor's name and the video
+  address (`url`) are not stored: the API works them out (the url is `<PUBLIC_API_URL>/api/v1/videos/stream/<id>`).
+- `status` is `uploading`, `uploaded`, `failed`, `held` (uploaded and on legal hold: the API shows it as `uploaded` with
+  `legalHold: true`), `archived` (removed by the policy) or `deleted` (removed by the doctor).
 - The patient's name and mobile are taken from the patient account. There is no limit on how many videos a patient has.
 - Types: mp4, mov, 3gp, webm, mkv. The first bytes of the file are checked, so a text or image file renamed to `.mp4`
   fails. Biggest file: `VIDEO_MAX_MB` (default 500). A file bigger than the size the app announced fails.

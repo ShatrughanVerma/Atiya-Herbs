@@ -257,7 +257,7 @@ function createFakePrisma() {
     }),
     creditEntry: createTable({defaults: () => ({id: ++creditEntrySeq, appointmentId: null, createdAt: now()})}),
     consultVideo: createTable({
-      defaults: () => ({id: randomUUID(), videoNo: ++videoNoSeq, fileName: null, sizeBytes: null, durationSec: null, status: 'uploading', failedReason: null, consentAt: null, uploadedAt: null, legalHold: false, deletedAt: null, removedBy: null, createdAt: now()}),
+      defaults: () => ({id: randomUUID(), videoNo: ++videoNoSeq, fileName: null, location: null, sessionId: null, videoCode: null, consultationDateTime: null, createdBy: null, status: 'uploading', createdAt: now()}),
     }),
     videoChunk: createTable({defaults: () => ({})}),
     videoAudit: createTable({defaults: () => ({id: ++videoAuditSeq, userId: null, ip: null, createdAt: now()})}),

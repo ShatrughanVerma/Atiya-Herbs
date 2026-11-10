@@ -25,7 +25,7 @@ const {createConsultationRoutes} = require('./consultation/consultationRoutes');
 const {createAdminRoutes} = require('./admin/adminRoutes');
 const {createDoctorRoutes} = require('./admin/doctorRoutes');
 const {createStreamRoutes} = require('./videos/streamRoutes');
-const {createVideoStorage} = require('./videos/storage');
+const {createFolderStorage, createVideoStorage} = require('./videos/storage');
 const {createVideosService} = require('./videos/videosService');
 const {createAppointmentsAdmin} = require('./admin/appointmentsAdmin');
 const {createClinicsAdmin} = require('./admin/clinicsAdmin');
@@ -95,7 +95,7 @@ function createApp({config, prisma, sender, logger = console}) {
   const orders = createOrdersService({prisma, audit});
   const history = createHistoryService({prisma});
   const consultation = createConsultationService({prisma, audit});
-  const videos = createVideosService({prisma, config, storage: createVideoStorage({kind: config.VIDEO_STORAGE, dir: config.VIDEO_STORAGE_DIR, prisma})});
+  const videos = createVideosService({prisma, config, storage: createVideoStorage({kind: config.VIDEO_STORAGE, dir: config.VIDEO_STORAGE_DIR, prisma}), copyStorage: config.VIDEO_COPY_DIR ? createFolderStorage({dir: config.VIDEO_COPY_DIR}) : null});
   const adminParts = {
     videos,
     appointments: createAppointmentsAdmin({prisma, audit, consultation}),

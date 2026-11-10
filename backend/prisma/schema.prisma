@@ -491,37 +491,29 @@ enum VideoStatus {
   uploading
   uploaded
   failed
+  held
+  archived
+  deleted
 }
 
 model ConsultVideo {
-  id            String      @id @default(uuid(7)) @db.Char(36)
-  // A short running number (shown as V000012): easy to read out and to search by
-  videoNo       Int         @unique @default(autoincrement()) @map("video_no")
-  videoCode     String?     @db.VarChar(10) // the same number written as V000012
-  doctorId      String      @db.VarChar(64)
-  doctorName    String      @db.VarChar(120)
-  patientCode   String?     @db.VarChar(10) // the patient id (P000123), as the doctor typed it in the form (it is the link to the patient)
-  patientName   String      @db.VarChar(100)
-  patientMobile String      @db.VarChar(15)
-  fileName      String?     @db.VarChar(80) // the name of the video file (its key in video_chunks, or in the video folder)
-  storageKind   String?     @db.VarChar(10) // where the file is kept: database or folder
-  location      String?     @db.VarChar(300) // the exact place, for people reading the table
-  uploadIp      String?     @db.VarChar(64) // the network address the upload came from
-  uploadDevice  String?     @db.VarChar(250) // the phone / app that sent it (its user agent)
-  url           String?     @db.VarChar(200) // the address that serves the video; it only plays with a signed, short-lived link
-  mimeType      String      @db.VarChar(40)
-  sizeBytes     Int?
-  durationSec   Int?
-  status        VideoStatus @default(uploading)
-  failedReason  String?     @db.VarChar(200)
-  consentAt     DateTime? // when the doctor confirmed that the patient agreed
-  uploadedAt    DateTime?
-  legalHold     Boolean     @default(false) // a held video is never deleted by the archive policy
-  deletedAt     DateTime? // set when the file was removed (policy or doctor)
-  removedBy     String?   @db.VarChar(10) // policy | doctor
-  createdAt     DateTime    @default(now())
+  id                   String      @id @default(uuid(7)) @db.Char(36)
+  // A short running number: the video id is V000012, the session id S000012
+  videoNo              Int         @unique @default(autoincrement()) @map("video_no")
+  videoCode            String?     @map("videoId") @db.VarChar(10) // the video id, V000012 (column videoId)
+  sessionId            String?     @db.VarChar(10) // the session id, S000012 (one per upload)
+  consultationDateTime DateTime? // when the consultation was (the time the upload started)
+  doctorId             String      @db.VarChar(64)
+  patientName          String      @db.VarChar(100)
+  patientMobile        String      @map("patientPhone") @db.VarChar(15) // links the video to the patient (the account with this mobile number)
+  fileName             String?     @map("videoFileName") @db.VarChar(80) // the name of the video file (its key in video_chunks, or in the video folder)
+  destinationPath      String?     @db.VarChar(300) // the folder the video is saved in, or mysql://<database>/video_chunks
+  location             String?     @map("videoFilePath") @db.VarChar(300) // the exact place of the file, for people reading the table
+  // uploading | uploaded | failed | held (uploaded and on legal hold) | archived (removed by the policy) | deleted (removed by the doctor)
+  status               VideoStatus @default(uploading)
+  createdAt            DateTime    @default(now()) @map("createdOn")
+  createdBy            String?     @db.VarChar(64) // the doctor id of the person who uploaded
 
-  @@index([patientCode])
   @@index([patientMobile])
   @@index([doctorId, createdAt])
   @@index([status])

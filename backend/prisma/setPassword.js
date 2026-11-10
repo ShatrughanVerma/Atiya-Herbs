@@ -96,4 +96,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = {applyPassword};
+module.exports = {applyPassword, askHidden};

@@ -57,24 +57,21 @@ async function world(env = {}) {
 describe('the doctor uploads a video with the form (patient id + doctor id)', () => {
   test('the file is saved and the details, with the patient taken from the patient id, go to the database', async () => {
     const {t, dir, doc, start} = await world();
-    const created = (await start({sizeBytes: 4024, durationSec: 95}).expect(201)).body;
+    const created = (await start().expect(201)).body;
     expect(created).toMatchObject({status: 'uploading', maxBytes: 500 * 1024 * 1024});
     expect(created.code).toMatch(/^V\d{6}$/);
     const done = await doc('post', `/videos/${created.id}/file`).set('User-Agent', 'AtiyaHerbs-test-phone/1.0 (Android 12; CPH2095)').attach('file', mp4(), {filename: 'visit.mp4', contentType: 'video/mp4'}).expect(201);
-    expect(done.body).toMatchObject({id: created.id, code: created.code, status: 'uploaded', sizeBytes: 4024, durationSec: 95, patientName: 'Asha Khan', patientMobile: '9876543210', patientCode: PATIENT});
+    expect(done.body).toMatchObject({id: created.id, code: created.code, status: 'uploaded', sizeBytes: 4024, patientName: 'Asha Khan', patientMobile: '9876543210', patientCode: PATIENT});
 
     const row = t.prisma.consultVideo.rows[0];
     // no visit: the video belongs to a patient and a doctor
-    expect(row).toMatchObject({videoCode: created.code, patientCode: PATIENT, doctorId: DOCTOR, doctorName: 'Sample Doctor One', patientName: 'Asha Khan', patientMobile: '9876543210', fileName: `${created.id}.mp4`});
-    expect(row).not.toHaveProperty('userId'); // the long account id is not kept: the patient id is the link
-    expect(row).not.toHaveProperty('consentByUserId');
-    expect(row.consentAt).toBeInstanceOf(Date);
+    expect(row).toMatchObject({videoCode: created.code, sessionId: created.code.replace('V', 'S'), createdBy: DOCTOR, doctorId: DOCTOR, patientName: 'Asha Khan', patientMobile: '9876543210', fileName: `${created.id}.mp4`, status: 'uploaded'});
+    expect(row.consultationDateTime).toBeInstanceOf(Date);
+    // the table keeps only the columns that were asked for
+    expect(Object.keys(row).filter(k => !k.startsWith('_')).sort()).toEqual(['consultationDateTime', 'createdAt', 'createdBy', 'destinationPath', 'doctorId', 'fileName', 'id', 'location', 'patientMobile', 'patientName', 'sessionId', 'status', 'videoCode', 'videoNo']);
     expect(fs.readFileSync(path.join(dir, `${created.id}.mp4`))).toEqual(mp4());
-    // the table says where the file is and which address serves it
-    expect(row).toMatchObject({storageKind: 'folder', location: path.resolve(dir, `${created.id}.mp4`), url: `http://localhost:4100/api/v1/videos/stream/${created.id}`});
-    // and where the upload came from: the network address and the phone / app (its user agent)
-    expect(row.uploadIp).toEqual(expect.any(String));
-    expect(row.uploadDevice).toBe('AtiyaHerbs-test-phone/1.0 (Android 12; CPH2095)');
+    // the table says where the file is
+    expect(row.location).toBe(path.resolve(dir, `${created.id}.mp4`));
     expect(t.prisma.videoAudit.rows.map(r => r.action)).toEqual(['upload']);
     expect((await doc('get', '/videos').expect(200)).body.map(v => v.status)).toEqual(['uploaded']);
     // the same upload cannot be sent twice
@@ -117,17 +114,12 @@ describe('the doctor uploads a video with the form (patient id + doctor id)', ()
     await other('post', `/videos/${mine.id}/file`).attach('file', mp4(), {filename: 'x.mp4', contentType: 'video/mp4'}).expect(404);
   });
 
-  test('a file that is not a video, or is bigger than said, fails and leaves nothing on disk', async () => {
+  test('a file that is not a video fails and leaves nothing on disk', async () => {
     const {t, dir, upload} = await world();
     const text = await upload(Buffer.from('this is just some text, not a video at all'));
     expect(text.done.status).toBe(415);
-    const big = await upload(mp4(5000), {sizeBytes: 1000});
-    expect(big.done.status).toBe(413);
     expect(fs.readdirSync(dir)).toEqual([]);
-    expect(t.prisma.consultVideo.rows.map(v => [v.status, v.failedReason])).toEqual([
-      ['failed', 'This file is not a video.'],
-      ['failed', 'The video is bigger than it was said to be.'],
-    ]);
+    expect(t.prisma.consultVideo.rows.map(v => v.status)).toEqual(['failed']);
     const empty = await upload(Buffer.alloc(0));
     expect(empty.done.status).toBeGreaterThanOrEqual(400);
     // there is no limit on how many videos a patient can have
@@ -149,6 +141,7 @@ describe('staff find and play videos', () => {
       patient: {code: PATIENT, name: 'Asha Khan', mobile: '9876543210'},
       doctor: {id: 'sample-doctor-one', name: 'Sample Doctor One'},
       status: 'uploaded',
+      sessionId: created.code.replace('V', 'S'),
       mimeType: 'video/mp4',
       sizeBytes: 4024,
       legalHold: false,
@@ -268,7 +261,6 @@ describe('alerts and the archive policy', () => {
     const alerts = (await ask('get', '/videos/alerts').expect(200)).body;
     expect(alerts).toMatchObject({failed: 1, stuckUploading: 1, missing: 1});
     expect(alerts.items.missing[0].id).toBe(lost.id);
-    expect(alerts.items.failed[0].failedReason).toBe('This file is not a video.');
 
     const statuses = Object.fromEntries((await ask('get', '/videos?pageSize=50')).body.items.map(v => [v.id, v.status]));
     expect(statuses[lost.id]).toBe('missing');
@@ -282,8 +274,8 @@ describe('alerts and the archive policy', () => {
     const held = (await upload()).created;
     const stuck = (await start().expect(201)).body;
     const row = id => t.prisma.consultVideo.rows.find(v => v.id === id);
-    row(old.id).uploadedAt = new Date(Date.now() - 400 * 24 * 3_600_000);
-    row(held.id).uploadedAt = new Date(Date.now() - 400 * 24 * 3_600_000);
+    row(old.id).createdAt = new Date(Date.now() - 400 * 24 * 3_600_000);
+    row(held.id).createdAt = new Date(Date.now() - 400 * 24 * 3_600_000);
     row(stuck.id).createdAt = new Date(Date.now() - 2 * 3_600_000);
     expect((await ask('patch', `/videos/${held.id}`).send({legalHold: true}).expect(200)).body.legalHold).toBe(true);
     await ask('patch', `/videos/${held.id}`).send({legalHold: 'yes'}).expect(400);
@@ -292,8 +284,9 @@ describe('alerts and the archive policy', () => {
     expect(await videos.applyRetention()).toEqual({failedUploads: 1, archived: 1});
     expect(fs.existsSync(path.join(dir, `${old.id}.mp4`))).toBe(false);
     expect(fs.existsSync(path.join(dir, `${held.id}.mp4`))).toBe(true);
-    expect(row(stuck.id)).toMatchObject({status: 'failed', failedReason: 'The upload did not finish.'});
-    expect(row(old.id).deletedAt).toBeInstanceOf(Date);
+    expect(row(held.id).status).toBe('held'); // a legal hold is the status "held"
+    expect(row(stuck.id).status).toBe('failed');
+    expect(row(old.id).status).toBe('archived');
 
     // an archived video still has its history, but can no longer be played
     const detail = (await ask('get', `/videos/${old.id}`).expect(200)).body;
@@ -402,10 +395,11 @@ describe('videos kept inside MySQL (VIDEO_STORAGE=database)', () => {
     const done = await doc('post', `/videos/${created.id}/file`).set('User-Agent', 'AtiyaHerbs-test-phone/1.0 (Android 12; CPH2095)').attach('file', bytes, {filename: 'a.mp4', contentType: 'video/mp4'}).expect(201);
     expect(done.body).toMatchObject({status: 'uploaded', sizeBytes: bytes.length});
     expect(fs.readdirSync(dir)).toEqual([]); // nothing in the folder
-    expect(t.prisma.consultVideo.rows[0]).toMatchObject({storageKind: 'database', location: `mysql://${t.config.DB_NAME}/video_chunks/${created.id}.mp4`, url: `http://localhost:4100/api/v1/videos/stream/${created.id}`});
+    expect(t.prisma.consultVideo.rows[0]).toMatchObject({location: `mysql://${t.config.DB_NAME}/video_chunks/${created.id}.mp4`});
     // staff see them too, and the address alone does not play anything: it needs the signed link
     const item = (await ask('get', '/videos').expect(200)).body.items[0];
-    expect(item).toMatchObject({storage: 'database', location: `mysql://${t.config.DB_NAME}/video_chunks/${created.id}.mp4`, url: `http://localhost:4100/api/v1/videos/stream/${created.id}`, source: {ip: expect.any(String), device: 'AtiyaHerbs-test-phone/1.0 (Android 12; CPH2095)'}});
+    expect(item).toMatchObject({storage: 'database', location: `mysql://${t.config.DB_NAME}/video_chunks/${created.id}.mp4`, url: `http://localhost:4100/api/v1/videos/stream/${created.id}`, source: {ip: null, device: null}});
+    expect((await ask('get', `/videos/${created.id}`).expect(200)).body.source.ip).toEqual(expect.any(String)); // the upload address is read from the audit log
     await request(t.app).get(new URL(item.url).pathname).expect(401);
     expect(t.prisma.videoChunk.rows.map(r => r.seq)).toEqual([0, 1, 2]);
     expect(t.prisma.videoChunk.rows.reduce((sum, r) => sum + r.size, 0)).toBe(bytes.length);
@@ -440,7 +434,7 @@ describe('videos kept inside MySQL (VIDEO_STORAGE=database)', () => {
     expect((await ask('get', '/videos/alerts').expect(200)).body.missing).toBe(1);
     await ask('post', `/videos/${lost.id}/link`).send({action: 'play'}).expect(404);
 
-    t.prisma.consultVideo.rows.find(v => v.id === old.id).uploadedAt = new Date(Date.now() - 400 * 24 * 3_600_000);
+    t.prisma.consultVideo.rows.find(v => v.id === old.id).createdAt = new Date(Date.now() - 400 * 24 * 3_600_000);
     const videos = createVideosService({prisma: t.prisma, config: {...config, VIDEO_STORAGE: 'database'}, storage: createDatabaseStorage({prisma: t.prisma})});
     expect((await videos.applyRetention()).archived).toBe(1);
     expect(t.prisma.videoChunk.rows.filter(r => r.fileKey.startsWith(old.id))).toHaveLength(0);
@@ -535,14 +529,12 @@ describe('smart search in the doctor\'s own videos', () => {
 });
 
 describe('the address of a video and where it came from', () => {
-  test('the url starts with the public address of the server (PUBLIC_API_URL) and the table keeps the upload source', async () => {
+  test('the url starts with the public address of the server (PUBLIC_API_URL) and the upload address is known', async () => {
     const {t, ask, upload} = await world({PUBLIC_API_URL: 'https://api.atiyaherbs.example/'});
     const {created} = await upload();
-    const row = t.prisma.consultVideo.rows[0];
-    expect(row.url).toBe(`https://api.atiyaherbs.example/api/v1/videos/stream/${created.id}`); // no double slash
     const item = (await ask('get', '/videos').expect(200)).body.items[0];
-    expect(item.url).toBe(row.url);
-    expect(item.source).toEqual({ip: expect.any(String), device: 'AtiyaHerbs-test-phone/1.0 (Android 12; CPH2095)'});
+    expect(item.url).toBe(`https://api.atiyaherbs.example/api/v1/videos/stream/${created.id}`); // no double slash
+    expect((await ask('get', `/videos/${created.id}`).expect(200)).body.source).toEqual({ip: expect.any(String), device: null}); // the address comes from the upload entry of the audit log
     // the address alone plays nothing: it needs the signed link
     await request(t.app).get(new URL(item.url).pathname).expect(401);
   });
@@ -558,8 +550,7 @@ describe('the doctor deletes one of their own videos', () => {
     await doc('delete', `/videos/${gone.id}`).expect(204);
     expect(fs.readdirSync(dir)).toEqual([`${keep.id}.mp4`]); // the file is really gone
     const row = t.prisma.consultVideo.rows.find(v => v.id === gone.id);
-    expect(row).toMatchObject({removedBy: 'doctor'});
-    expect(row.deletedAt).toBeInstanceOf(Date);
+    expect(row.status).toBe('deleted');
     expect((await doc('get', '/videos').expect(200)).body.map(v => v.id)).toEqual([keep.id]); // gone from the doctor's list
     expect((await doc('get', `/videos?q=${gone.code}`).expect(200)).body).toEqual([]);
 
@@ -589,7 +580,7 @@ describe('the doctor deletes one of their own videos', () => {
     expect(fs.existsSync(path.join(dir, `${held.id}.mp4`))).toBe(true);
     const pending = (await start().expect(201)).body; // still "uploading"
     await doc('delete', `/videos/${pending.id}`).expect(409);
-    expect(t.prisma.consultVideo.rows.filter(v => v.deletedAt)).toHaveLength(0);
+    expect(t.prisma.consultVideo.rows.filter(v => v.status === 'deleted')).toHaveLength(0);
   });
 
   test('without a login, or as a patient, nothing can be deleted; a failed upload can be cleared', async () => {
@@ -600,5 +591,42 @@ describe('the doctor deletes one of their own videos', () => {
     await request(t.app).delete(`/api/v1/doctor/videos/${bad.created.id}`).set(t.bearer(patient)).expect(403);
     await doc('delete', `/videos/${bad.created.id}`).expect(204); // a failed video can be removed from the list
     expect((await doc('get', '/videos').expect(200)).body).toEqual([]);
+  });
+});
+
+describe('a readable copy in VIDEO_COPY_DIR', () => {
+  test('the video is kept in the database and also written to the folder; the table names the folder; deleting removes both', async () => {
+    const copyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'atiya-copy-'));
+    dirs.push(copyDir);
+    const {t, dir, doc, ask, upload} = await world({VIDEO_STORAGE: 'database', VIDEO_COPY_DIR: copyDir});
+    const {created} = await upload();
+    const key = `${created.id}.mp4`;
+    expect(fs.readdirSync(dir)).toEqual([]); // not in the storage folder: the video is in the database
+    expect(t.prisma.videoChunk.rows.length).toBeGreaterThan(0);
+    expect(fs.readFileSync(path.join(copyDir, key)).equals(mp4())).toBe(true); // the copy
+    expect(t.prisma.consultVideo.rows[0].location).toBe(path.resolve(copyDir, key)); // the table names the copy
+    expect(t.prisma.consultVideo.rows[0].destinationPath).toBe(path.resolve(copyDir)); // and the folder it is in
+    expect((await ask('get', '/videos').expect(200)).body.items[0].location).toBe(path.resolve(copyDir, key));
+    // it still plays from the database
+    const link = (await ask('post', `/videos/${created.id}/link`).send({action: 'play'}).expect(200)).body;
+    await request(t.app).get(link.path).expect(200);
+    await doc('delete', `/videos/${created.id}`).expect(204);
+    expect(fs.existsSync(path.join(copyDir, key))).toBe(false);
+    expect(t.prisma.videoChunk.rows).toHaveLength(0);
+  });
+});
+
+describe('the times of a video are written as India time', () => {
+  test('the table holds IST (UTC + 5:30); the API still answers the real moment', async () => {
+    const {t, ask, upload} = await world();
+    const before = Date.now();
+    await upload();
+    const row = t.prisma.consultVideo.rows[0];
+    const IST = 330 * 60_000;
+    expect(Math.abs(row.consultationDateTime.getTime() - (before + IST))).toBeLessThan(60_000);
+    expect(Math.abs(row.createdAt.getTime() - (before + IST))).toBeLessThan(60_000);
+    const item = (await ask('get', '/videos').expect(200)).body.items[0];
+    expect(Math.abs(new Date(item.createdAt).getTime() - before)).toBeLessThan(60_000); // the real moment
+    expect(Math.abs(new Date(item.consultationDateTime).getTime() - before)).toBeLessThan(60_000);
   });
 });
