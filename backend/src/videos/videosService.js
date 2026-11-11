@@ -501,7 +501,7 @@ function createVideosService({prisma, config, storage, copyStorage = null, now =
       const expected = sign(id, action, expiresNumber);
       const given = Buffer.from(String(token ?? ''));
       const want = Buffer.from(expected);
-      if (action !== 'play' || !Number.isInteger(expiresNumber) || given.length !== want.length || !timingSafeEqual(given, want)) {
+      if (!['play', 'download'].includes(action) || !Number.isInteger(expiresNumber) || given.length !== want.length || !timingSafeEqual(given, want)) {
         throw fail(403, 'This link is not valid.');
       }
       if (expiresNumber < now().getTime() / 1000) {
@@ -529,6 +529,7 @@ function createVideosService({prisma, config, storage, copyStorage = null, now =
         stream: storage.open(v.fileName, range),
         size: info.size,
         range,
+        download: action === 'download',
         mimeType: MIME_BY_EXT[v.fileName.split('.').pop()] ?? 'application/octet-stream',
         fileName: `video-${v.videoCode ?? formatVideoCode(v.videoNo) ?? 'file'}-${v.id.slice(0, 8)}.${v.fileName.split('.').pop()}`,
       };

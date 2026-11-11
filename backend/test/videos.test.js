@@ -194,16 +194,24 @@ describe('staff find and play videos', () => {
     expect(detail.audit[0].by).toMatchObject({id: admin.user.id});
   });
 
-  test('a video can be played but not downloaded: only the play action exists', async () => {
+  test('staff can play and download; a download is an attachment, is audited and is written to the log', async () => {
     const {t, ask, upload} = await world();
     const {created} = await upload();
-    await ask('post', `/videos/${created.id}/link`).send({action: 'download'}).expect(400);
-    await ask('post', `/videos/${created.id}/link`).send({action: 'delete'}).expect(400);
+    await ask('post', `/videos/${created.id}/link`).send({action: 'delete'}).expect(400); // only play and download exist
     const link = (await ask('post', `/videos/${created.id}/link`).send({action: 'play'}).expect(200)).body;
     const res = await request(t.app).get(link.path).expect(200);
-    expect(res.headers['content-disposition']).toMatch(/^inline;/); // never "attachment"
-    await request(t.app).get(link.path.replace('a=play', 'a=download')).expect(400); // a download link is not accepted
-    expect(t.prisma.videoAudit.rows.map(r => r.action)).toEqual(['upload', 'play']);
+    expect(res.headers['content-disposition']).toMatch(/^inline;/); // playing shows it in the player
+    // a play link cannot be turned into a download link (the signature is for the play action)
+    await request(t.app).get(link.path.replace('a=play', 'a=download')).expect(403);
+
+    const dl = (await ask('post', `/videos/${created.id}/link`).send({action: 'download'}).expect(200)).body;
+    expect(dl.path).toContain('a=download');
+    const file = await request(t.app).get(dl.path).expect(200);
+    expect(file.headers['content-disposition']).toMatch(/^attachment; filename="video-V\d{6}-/);
+    expect(t.prisma.videoAudit.rows.map(r => r.action)).toEqual(['upload', 'play', 'download']);
+    const rows = t.prisma.log.rows;
+    expect(rows.map(r => [r.whoPlayed, r.whoDownloaded])).toEqual([['Admin', null], [null, 'Admin']]);
+    expect(rows[1]).toMatchObject({videoFile: `${created.id}.mp4`, patientPhone: '9876543210', patientId: PATIENT});
   });
 
   test('a link that was changed, made for another video or action, or has no signature is refused', async () => {

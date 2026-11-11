@@ -535,7 +535,7 @@ file is kept **inside MySQL**: it is cut into pieces of 1 MiB, one row each in `
 | `GET /admin/videos` | Search. Query: `q` (patient name, mobile, a patient id `P000123` or a **video id `V000012`**), `doctor` (doctor name), `doctorId`, `patientCode`, `status` (`uploading`, `uploaded`, `failed`), `from`, `to` (YYYY-MM-DD, upload start day, Indian time), `page`, `pageSize`. Answer `{items, total, page, pageSize}`. Newest first |
 | `GET /admin/videos/alerts` | `{failed, stuckUploading, missing, items: {failed: [...], stuckUploading: [...], missing: [...]}}`. `stuckUploading` = not finished after 60 minutes. `missing` = marked uploaded but the file is not on the disk |
 | `GET /admin/videos/:id` | One video plus its **audit history** (`audit: [{action, by: {id, name, mobile}, ip, at}]`, newest first; `by` is `null` when the archive policy did it) |
-| `POST /admin/videos/:id/link` | Body `{"action": "play"}` (videos can be played, **not downloaded**). Answer `{path, expiresAt}`. **Asking for the link is what is audited.** 404 if the file is missing, 410 if archived |
+| `POST /admin/videos/:id/link` | Body `{"action": "play"}` or `{"action": "download"}` (a download link saves the file as an attachment; doctors can only play). Every play and download is written to `video_audit` and to the access log table `log` (who played / who downloaded, patient, file, India time). Answer `{path, expiresAt}`. **Asking for the link is what is audited.** 404 if the file is missing, 410 if archived |
 | `PATCH /admin/videos/:id` | Body `{"legalHold": true}`. A held video is never deleted by the archive policy |
 
 A video in the list:

@@ -27,7 +27,8 @@ function createStreamRoutes({videos}) {
         'Accept-Ranges': 'bytes',
         'Content-Length': String(file.range ? file.range.end - file.range.start + 1 : file.size),
         ...(file.range && {'Content-Range': `bytes ${file.range.start}-${file.range.end}/${file.size}`}),
-        'Content-Disposition': `inline; filename="${file.fileName}"`,
+        // a download link saves the file; a play link shows it in the player
+        'Content-Disposition': `${file.download ? 'attachment' : 'inline'}; filename="${file.fileName}"`,
         'Cache-Control': 'private, no-store',
         // the admin panel is another website: its video player may load this
         'Cross-Origin-Resource-Policy': 'cross-origin',

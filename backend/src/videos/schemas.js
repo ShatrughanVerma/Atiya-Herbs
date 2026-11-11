@@ -36,14 +36,15 @@ const doctorVideosQuerySchema = z
   .object({q: safeText(1, 80).optional(), status: z.enum(['uploading', 'uploaded', 'failed']).optional()})
   .strict();
 
-const linkSchema = z.object({action: z.literal('play')}).strict();
-// a doctor can only play their own video
+// staff can play and download; the download is written to the access log (table log: who downloaded)
+const linkSchema = z.object({action: z.enum(['play', 'download'])}).strict();
+// a doctor can only play their own video (no download)
 const doctorLinkSchema = z.object({action: z.literal('play')}).strict();
 const holdSchema = z.object({legalHold: z.boolean()}).strict();
 
 // ?a=play&e=1767000000&t=<signature>
 const streamQuerySchema = z
-  .object({a: z.literal('play'), e: z.string().regex(/^\d{1,12}$/), t: z.string().regex(/^[0-9a-f]{64}$/)})
+  .object({a: z.enum(['play', 'download']), e: z.string().regex(/^\d{1,12}$/), t: z.string().regex(/^[0-9a-f]{64}$/)})
   .strict();
 
 module.exports = {startVideoSchema, doctorVideosQuerySchema, adminVideosQuerySchema, linkSchema, doctorLinkSchema, holdSchema, streamQuerySchema};
