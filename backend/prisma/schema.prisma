@@ -545,3 +545,21 @@ model VideoChunk {
   @@unique([fileKey, seq])
   @@map("video_chunks")
 }
+
+// The access log of the videos: one row every time somebody plays (or downloads) a video. Times are India time (IST).
+model Log {
+  serialNo      Int      @id @default(autoincrement())
+  whoPlayed     String?  @db.VarChar(100) // the name of the person who played the video
+  whoDownloaded String?  @db.VarChar(100) // the name of the person who downloaded it (downloading is switched off for now)
+  uidName       String?  @db.VarChar(150) // the person's account: "Name (user id)"
+  videoFile     String?  @db.VarChar(80) // the video file name
+  patientPhone  String?  @db.VarChar(15)
+  patientId     String?  @db.VarChar(10) // P000123
+  dateTime      DateTime // when it was played / downloaded
+  createdBy     String?  @db.VarChar(64) // the user id of the person who did it
+  createdOn     DateTime @default(now())
+
+  @@index([patientId])
+  @@index([patientPhone])
+  @@map("log")
+}

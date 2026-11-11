@@ -630,3 +630,21 @@ describe('the times of a video are written as India time', () => {
     expect(Math.abs(new Date(item.consultationDateTime).getTime() - before)).toBeLessThan(60_000);
   });
 });
+
+describe('the access log (table log)', () => {
+  test('every play is written with who played, the video file, the patient and the time', async () => {
+    const {t, ask, doc, upload} = await world();
+    const {created} = await upload();
+    await ask('post', `/videos/${created.id}/link`).send({action: 'play'}).expect(200);
+    await doc('post', `/videos/${created.id}/link`).send({action: 'play'}).expect(200);
+    const rows = t.prisma.log.rows;
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({whoPlayed: 'Admin', whoDownloaded: null, videoFile: `${created.id}.mp4`, patientPhone: '9876543210', patientId: PATIENT});
+    expect(rows[0].uidName).toMatch(/^Admin \(.+\)$/);
+    expect(rows[0].serialNo).toBe(1);
+    expect(rows[1].serialNo).toBe(2);
+    expect(rows[1].whoPlayed).toEqual(expect.any(String)); // the doctor's own name or number
+    expect(Math.abs(rows[0].dateTime.getTime() - (Date.now() + 330 * 60_000))).toBeLessThan(60_000); // India time
+    expect(rows[0].createdBy).toBe(rows[0].uidName.match(/\((.+)\)/)[1]);
+  });
+});

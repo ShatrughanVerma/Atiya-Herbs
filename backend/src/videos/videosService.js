@@ -83,6 +83,31 @@ function createVideosService({prisma, config, storage, copyStorage = null, now =
   const locationOf = key => (copyStorage ? path.resolve(config.VIDEO_COPY_DIR, key) : storageLocationOf(key));
   // the folder of a video (the table keeps it next to the full path): where the video is saved
   const destinationOf = key => path.dirname(locationOf(key));
+  // The access log (table `log`): who played or downloaded which video, for which patient, and when (India time)
+  const writeLog = async (v, userId, action) => {
+    try {
+      const user = userId ? await prisma.user.findUnique({where: {id: userId}}) : null;
+      const name = user ? user.name || user.email || user.mobile : null;
+      const codes = await patientCodes([v.patientMobile]);
+      const at = toStored(now());
+      await prisma.log.create({
+        data: {
+          whoPlayed: action === 'play' ? name : null,
+          whoDownloaded: action === 'download' ? name : null,
+          uidName: user ? `${name} (${user.id})` : null,
+          videoFile: v.fileName ?? null,
+          patientPhone: v.patientMobile,
+          patientId: codes.get(v.patientMobile) ?? null,
+          dateTime: at,
+          createdBy: userId ?? null,
+          createdOn: at,
+        },
+      });
+    } catch {
+      // the log must never stop a video from playing
+    }
+  };
+
   // removes a video file everywhere it is kept
   const dropFile = async key => {
     await storage.remove(key);
@@ -465,6 +490,7 @@ function createVideosService({prisma, config, storage, copyStorage = null, now =
       }
       const expires = Math.floor(now().getTime() / 1000) + LINK_SECONDS;
       await record(id, admin.id, action, ip);
+      await writeLog(v, admin.id, action);
       return {path: `/api/v1/videos/stream/${id}?a=${action}&e=${expires}&t=${sign(id, action, expires)}`, expiresAt: new Date(expires * 1000).toISOString()};
     },
 
