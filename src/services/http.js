@@ -1,4 +1,17 @@
+import axios from 'axios';
 import { API_BASE_URL, API_TIMEOUT_MS } from '../config/api';
+
+// One axios instance for every call to the API. validateStatus is open so that our own code (fromResponse) turns a
+// 4xx / 5xx answer into an ApiError with the message written for the person. Tests replace its adapter (see
+// test-utils/mockServer).
+export const client = axios.create({ baseURL: API_BASE_URL, validateStatus: () => true });
+
+// a failed axios call (no answer at all) is either a timeout or no connection
+const fromAxiosFailure = error =>
+  new ApiError(
+    error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT' ? 'timeout' : 'network',
+    FALLBACK[error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT' ? 'timeout' : 'network'],
+  );
 
 // One error type for everything that goes wrong when talking to the API.
 //  kind: 'network' | 'timeout' | 'validation' | 'unauthorized' | 'forbidden' | 'not-found' | 'conflict'
@@ -71,79 +84,58 @@ export async function request(
   path,
   { method = 'GET', body, token, timeoutMs = API_TIMEOUT_MS } = {},
 ) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await client.request({
+      url: path,
       method,
+      data: body,
+      timeout: timeoutMs,
       headers: {
         Accept: 'application/json',
         ...(body !== undefined && { 'Content-Type': 'application/json' }),
         ...(token && { Authorization: `Bearer ${token}` }),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
     });
   } catch (error) {
-    const kind = error?.name === 'AbortError' ? 'timeout' : 'network';
-    throw new ApiError(kind, FALLBACK[kind]);
-  } finally {
-    clearTimeout(timer);
+    throw fromAxiosFailure(error);
   }
 
-  let data = null;
-  if (response.status !== 204) {
-    try {
-      data = await response.json();
-    } catch {
-      data = null;
-    }
-  }
-  if (!response.ok) {
-    throw fromResponse(
-      response.status,
-      data,
-      response.headers?.get?.('Retry-After'),
-    );
+  // an empty or damaged body counts as no body
+  const data = response.status !== 204 && response.data && typeof response.data === 'object' ? response.data : null;
+  if (response.status < 200 || response.status >= 300) {
+    throw fromResponse(response.status, data, response.headers?.['retry-after']);
   }
   return data;
 }
 
-// upload('/path', {formData, token, onProgress}) -> parsed JSON. A file upload with progress (0..1); it uses
-// XMLHttpRequest because fetch cannot report how much has been sent. Throws ApiError, like request().
-export function upload(path, { formData, token, onProgress, timeoutMs = 30 * 60 * 1000 }) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API_BASE_URL}${path}`);
-    xhr.setRequestHeader('Accept', 'application/json');
-    if (token) {
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    }
-    xhr.timeout = timeoutMs;
-    if (onProgress && xhr.upload) {
-      xhr.upload.onprogress = event => {
-        if (event.lengthComputable && event.total > 0) {
-          onProgress(event.loaded / event.total);
-        }
-      };
-    }
-    xhr.onload = () => {
-      let data = null;
-      try {
-        data = JSON.parse(xhr.responseText);
-      } catch {
-        data = null;
-      }
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(data);
-      } else {
-        reject(fromResponse(xhr.status, data, xhr.getResponseHeader('Retry-After')));
-      }
-    };
-    xhr.onerror = () => reject(new ApiError('network', FALLBACK.network));
-    xhr.ontimeout = () => reject(new ApiError('timeout', FALLBACK.timeout));
-    xhr.send(formData);
-  });
+// upload('/path', {formData, token, onProgress}) -> parsed JSON. A file upload with progress (0..1): axios reports
+// how much has been sent (onUploadProgress). Throws ApiError, like request().
+export async function upload(path, { formData, token, onProgress, timeoutMs = 30 * 60 * 1000 }) {
+  let response;
+  try {
+    response = await client.post(path, formData, {
+      timeout: timeoutMs,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'multipart/form-data',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      transformRequest: data => data, // send the FormData as it is
+      onUploadProgress: onProgress
+        ? event => {
+            if (event.total > 0) {
+              onProgress(event.loaded / event.total);
+            }
+          }
+        : undefined,
+    });
+  } catch (error) {
+    throw fromAxiosFailure(error);
+  }
+  const data = response.data && typeof response.data === 'object' ? response.data : null;
+  if (response.status < 200 || response.status >= 300) {
+    throw fromResponse(response.status, data, response.headers?.['retry-after']);
+  }
+  return data;
 }
-

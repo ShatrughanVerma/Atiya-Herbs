@@ -1,10 +1,14 @@
 /* eslint-env jest */
-// A fake server: routes is {'METHOD /path': (body, headers) => [status, json]}; every call is recorded
+import { client } from '../src/services/http';
+
+// A fake server (it replaces the axios adapter of the app's client, so nothing goes to the network): routes is {'METHOD /path': (body, headers) => [status, json]}; every call is recorded
 export const mockServer = routes => {
   const calls = [];
-  global.fetch = jest.fn(async (url, init = {}) => {
+  const adapter = jest.fn(async config => {
+    const url = config.url;
+    const init = { method: (config.method || 'get').toUpperCase(), body: config.data, headers: config.headers };
     const path = url.replace(/^https?:\/\/[^/]+\/api\/v1/, '');
-    const method = init.method || 'GET';
+    const method = init.method;
     const key = `${method} ${path}`;
     const body = init.body ? JSON.parse(init.body) : undefined;
     calls.push({ key, body, auth: init.headers?.Authorization });
@@ -45,16 +49,22 @@ export const mockServer = routes => {
     }
     const [status, json, headers = {}] = out;
     return {
-      ok: status >= 200 && status < 300,
+      data: json,
       status,
-      headers: { get: name => headers[name] ?? null },
-      json: async () => {
-        if (json === undefined) {
-          throw new Error('no body');
-        }
-        return json;
-      },
+      statusText: '',
+      headers: Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])),
+      config,
     };
   });
+  client.defaults.adapter = adapter;
   return calls;
+};
+
+// No connection at all (or a server that never answers, with code 'ECONNABORTED'): the adapter fails like axios does
+export const mockNetworkFailure = (code = 'ERR_NETWORK') => {
+  const adapter = jest.fn(async () => {
+    throw Object.assign(new Error('Network Error'), { code });
+  });
+  client.defaults.adapter = adapter;
+  return adapter;
 };

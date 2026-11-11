@@ -10,7 +10,7 @@ import {
   startSession,
 } from '../../src/services/session';
 import {clearTokens, loadTokens, saveTokens} from '../../src/services/tokenStore';
-import {mockServer} from '../../test-utils/mockServer';
+import {mockNetworkFailure, mockServer} from '../../test-utils/mockServer';
 
 beforeEach(async () => {
   Keychain.__store.clear();
@@ -75,22 +75,12 @@ describe('errors', () => {
   });
 
   test('no connection and a slow server are told apart', async () => {
-    global.fetch = jest.fn(async () => {
-      throw new TypeError('Network request failed');
-    });
+    mockNetworkFailure();
     const offline = await request('/x').catch(e => e);
     expect(offline.kind).toBe('network');
     expect(offline.message).toMatch(/internet/);
 
-    global.fetch = jest.fn((url, init) =>
-      new Promise((resolve, reject) => {
-        init.signal.addEventListener('abort', () => {
-          const e = new Error('aborted');
-          e.name = 'AbortError';
-          reject(e);
-        });
-      }),
-    );
+    mockNetworkFailure('ECONNABORTED');
     const slow = await request('/x', {timeoutMs: 20}).catch(e => e);
     expect(slow.kind).toBe('timeout');
   });

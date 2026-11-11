@@ -5,7 +5,7 @@ import * as Keychain from 'react-native-keychain';
 import {AuthProvider, useAuth} from '../src/context/AuthContext';
 import {endSession, setSessionExpiredHandler} from '../src/services/session';
 import {loadTokens, saveTokens} from '../src/services/tokenStore';
-import {mockServer} from '../test-utils/mockServer';
+import {mockNetworkFailure, mockServer} from '../test-utils/mockServer';
 
 const mockSignOutFromGoogle = jest.fn(async () => {});
 jest.mock('../src/utils/googleAuth', () => ({
@@ -32,15 +32,14 @@ const mount = async () => {
   return () => auth;
 };
 
+let fetchCalls;
 beforeEach(async () => {
   await AsyncStorage.clear();
   Keychain.__store.clear();
   setSessionExpiredHandler(null);
   await endSession();
   mockSignOutFromGoogle.mockClear();
-  global.fetch = jest.fn(async () => {
-    throw new TypeError('Network request failed'); // offline unless a test sets a server
-  });
+  fetchCalls = mockNetworkFailure(); // offline unless a test sets a server
 });
 
 test('starts signed out when nothing was saved', async () => {
@@ -63,7 +62,7 @@ test('a Google login is restored without any backend token, and the server is ne
   await AsyncStorage.setItem(KEY, JSON.stringify({name: 'Bilal', email: 'b@b.co', provider: 'google'}));
   const get = await mount();
   expect(get().user).toEqual({name: 'Bilal', email: 'b@b.co', provider: 'google'});
-  expect(global.fetch).not.toHaveBeenCalled();
+  expect(fetchCalls).not.toHaveBeenCalled();
 });
 
 describe('Account login', () => {

@@ -8,7 +8,7 @@ import LoginScreen from '../../src/screens/auth/LoginScreen';
 import SignUpScreen from '../../src/screens/auth/SignUpScreen';
 import {endSession, setSessionExpiredHandler} from '../../src/services/session';
 import {loadTokens} from '../../src/services/tokenStore';
-import {mockServer} from '../../test-utils/mockServer';
+import {mockNetworkFailure, mockServer} from '../../test-utils/mockServer';
 
 jest.mock('../../src/utils/googleAuth', () => ({
   isGoogleSignInConfigured: false,
@@ -143,9 +143,7 @@ describe('Login', () => {
     await press('Log in');
     expect(hasText(/try again in 14 minutes/)).toBe(true);
 
-    global.fetch = jest.fn(async () => {
-      throw new TypeError('Network request failed');
-    });
+    mockNetworkFailure();
     await press('Log in');
     expect(hasText(/check your internet/)).toBe(true);
   });

@@ -1,3 +1,4 @@
+import axios from 'axios';
 import {CLINICS} from '../data/store';
 import {distanceKm} from './location';
 
@@ -5,8 +6,8 @@ export const isValidPincode = pincode => /^[1-9][0-9]{5}$/.test(pincode);
 
 // India Post's free lookup: pincode → area, district and state (also tells us the pincode is real)
 async function lookupPostOffice(pincode) {
-  const res = await fetch(`https://api.postalpincode.in/pincode/${pincode}`);
-  const [data] = await res.json();
+  const res = await axios.get(`https://api.postalpincode.in/pincode/${pincode}`);
+  const [data] = res.data;
   const office = data?.Status === 'Success' ? data.PostOffice?.[0] : null;
   return office ? {area: office.Name, district: office.District, state: office.State} : null;
 }
@@ -14,11 +15,11 @@ async function lookupPostOffice(pincode) {
 // OpenStreetMap's free geocoder: pincode → coordinates. Returns null if it has no match.
 async function lookupCoordinates(pincode) {
   try {
-    const res = await fetch(
+    const res = await axios.get(
       `https://nominatim.openstreetmap.org/search?postalcode=${pincode}&countrycodes=in&format=json&limit=1`,
       {headers: {'User-Agent': 'AtiyaHerbsApp/1.0 (helpdesk@atiyaherbs.com)', 'Accept-Language': 'en'}},
     );
-    const [hit] = await res.json();
+    const [hit] = res.data;
     return hit ? {lat: Number(hit.lat), lng: Number(hit.lon)} : null;
   } catch {
     return null;
