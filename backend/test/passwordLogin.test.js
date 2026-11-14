@@ -286,3 +286,77 @@ describe('profile email is unique', () => {
     expect(ok.body.email).toBe('asha.new@example.com');
   });
 });
+
+describe('mobile OTP: sign-up verification and login second step (OTP_REQUIRED=true)', () => {
+  const MOBILE = '9876543210';
+  const post = (t, path, body) => request(t.app).post(`/api/v1/auth${path}`).send(body);
+
+  test('sign-up needs the code that was sent to the number', async () => {
+    const t = buildTestApp({OTP_REQUIRED: 'true'});
+    const noCode = await register(t);
+    expect(noCode.status).toBe(400);
+
+    await post(t, '/register/otp', {mobile: ASHA.mobile, email: ASHA.email}).expect(200);
+    expect(t.sent.at(-1).mobile).toBe(MOBILE);
+
+    const wrong = await register(t, {...ASHA, code: t.lastCode() === '000000' ? '111111' : '000000'});
+    expect(wrong.status).toBe(401);
+
+    const ok = await register(t, {...ASHA, code: t.lastCode()});
+    expect(ok.status).toBe(201);
+    expect(ok.body.user.mobile).toBe(MOBILE);
+
+    // the code works once
+    const again = await register(t, {...ASHA, email: 'other@example.com', code: t.lastCode()});
+    expect(again.status).toBe(409);
+  });
+
+  test('the sign-up code is not sent to a number that already has an account', async () => {
+    const t = buildTestApp();
+    await register(t).expect(201);
+    const res = await post(t, '/register/otp', {mobile: ASHA.mobile, email: 'new@example.com'});
+    expect(res.status).toBe(409);
+    expect(t.sent).toHaveLength(0);
+  });
+
+  test('with OTP off, the sign-up step 1 sends nothing and tells the app to register directly', async () => {
+    const t = buildTestApp();
+    const res = await post(t, '/register/otp', {mobile: ASHA.mobile, email: ASHA.email});
+    expect(res.body).toEqual({otpRequired: false});
+    expect(t.sent).toHaveLength(0);
+  });
+
+  test('a right password only gives a challenge; the session comes after the code', async () => {
+    const t = buildTestApp({OTP_REQUIRED: 'true'});
+    t.prisma.user.rows.push({id: 'u-asha', mobile: MOBILE, email: 'asha@example.com', name: 'Asha', roleId: 14, status: 'active',
+      passwordHash: await hashPassword(ASHA.password), failedLoginCount: 0, lockedUntil: null});
+
+    const step1 = await login(t, MOBILE, ASHA.password);
+    expect(step1.status).toBe(200);
+    expect(step1.body.otpRequired).toBe(true);
+    expect(step1.body.accessToken).toBeUndefined();
+    expect(step1.body.mobile).toBe('******3210');
+    expect(t.lastCode()).toMatch(/^\d{6}$/);
+
+    const wrong = await post(t, '/login/verify', {challengeToken: step1.body.challengeToken, code: '000000'});
+    expect(wrong.status).toBe(401);
+
+    const step2 = await post(t, '/login/verify', {challengeToken: step1.body.challengeToken, code: t.lastCode()});
+    expect(step2.status).toBe(200);
+    expect(step2.body.accessToken).toEqual(expect.any(String));
+    expect(step2.body.user.mobile).toBe(MOBILE);
+  });
+
+  test('a wrong password sends no SMS, and a forged or access token is no proof', async () => {
+    const t = buildTestApp({OTP_REQUIRED: 'true'});
+    t.prisma.user.rows.push({id: 'u-asha', mobile: MOBILE, email: 'asha@example.com', name: 'Asha', roleId: 14, status: 'active',
+      passwordHash: await hashPassword(ASHA.password), failedLoginCount: 0, lockedUntil: null});
+
+    expect((await login(t, MOBILE, 'Wrong-Pass-1')).status).toBe(401);
+    expect(t.sent).toHaveLength(0);
+
+    const session = await t.login(MOBILE); // an access token from the old OTP-only login
+    const res = await post(t, '/login/verify', {challengeToken: session.accessToken, code: '123456'});
+    expect(res.status).toBe(401);
+  });
+});

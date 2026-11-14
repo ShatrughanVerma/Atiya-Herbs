@@ -72,6 +72,12 @@ const schema = z
     OTP_SENDER: z.enum(['dev', 'sms']).default('dev'),
     // dev only: also put the OTP in the API response, so you can test without reading the log
     OTP_DEV_ECHO: bool(false),
+    // true = sign-up needs a code sent to the mobile number, and every password login needs a code as a second step.
+    // false keeps the old behaviour (password only), which is what the automated tests use.
+    OTP_REQUIRED: bool(false),
+    // MSG91 (OTP_SENDER=sms): the account key and the id of the approved DLT OTP template (it must contain ##OTP##)
+    MSG91_AUTH_KEY: z.preprocess(value => (value === '' ? undefined : value), z.string().min(8).optional()),
+    MSG91_TEMPLATE_ID: z.preprocess(value => (value === '' ? undefined : value), z.string().min(4).optional()),
 
     RATE_LIMIT_WINDOW_SECONDS: int(60, 1, 3600),
     RATE_LIMIT_MAX: int(120, 1, 100000), // requests per IP per window
@@ -87,6 +93,14 @@ const schema = z
       }
       if (!env.DB_SSL && !['localhost', '127.0.0.1'].includes(env.DB_HOST)) {
         problem('DB_SSL', 'DB_SSL must be true in production when the database is on another machine');
+      }
+    }
+    if (env.OTP_SENDER === 'sms') {
+      if (!env.MSG91_AUTH_KEY) {
+        problem('MSG91_AUTH_KEY', 'MSG91_AUTH_KEY is needed when OTP_SENDER=sms');
+      }
+      if (!env.MSG91_TEMPLATE_ID) {
+        problem('MSG91_TEMPLATE_ID', 'MSG91_TEMPLATE_ID is needed when OTP_SENDER=sms');
       }
     }
     if (env.OTP_SENDER === 'sms' && env.OTP_DEV_ECHO) {

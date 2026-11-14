@@ -26,6 +26,7 @@ export async function registerAccount({
   email,
   mobile,
   password,
+  code,
   deviceName,
 }) {
   try {
@@ -36,6 +37,7 @@ export async function registerAccount({
         email,
         mobile,
         password,
+        ...(code && { code }),
         ...(deviceName && { deviceName }),
       },
     });
@@ -44,7 +46,34 @@ export async function registerAccount({
   }
 }
 
-// identifier = email or mobile. -> the same session as registerAccount.
+// Step 1 of a sign-up: the server checks the number and email are free and, when OTP is on, sends the code by SMS.
+// -> {otpRequired: false} or {otpRequired: true, expiresInSeconds}
+export async function requestSignupOtp({ mobile, email }) {
+  try {
+    return await request('/auth/register/otp', {
+      method: 'POST',
+      body: { mobile, email },
+    });
+  } catch (error) {
+    throw waitMessage(error);
+  }
+}
+
+// Step 2 of a login (after the password was right): the proof from loginWithPassword and the SMS code.
+// -> the same session as registerAccount.
+export async function verifyLoginOtp(challengeToken, code, deviceName) {
+  try {
+    return await request('/auth/login/verify', {
+      method: 'POST',
+      body: { challengeToken, code, ...(deviceName && { deviceName }) },
+    });
+  } catch (error) {
+    throw waitMessage(error);
+  }
+}
+
+// identifier = email or mobile. -> the same session as registerAccount, or when the server wants an SMS code as
+// well: {otpRequired: true, challengeToken, mobile (masked), expiresInSeconds}
 export async function loginWithPassword(identifier, password, deviceName) {
   try {
     return await request('/auth/login', {

@@ -1,7 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
 import { normalizeMobile } from '../../calling/phone';
 import { useAuth } from '../../context/AuthContext';
-import { loginWithPassword, registerAccount } from '../../services/authApi';
+import {
+  loginWithPassword,
+  registerAccount,
+  requestSignupOtp,
+  verifyLoginOtp,
+} from '../../services/authApi';
 import { ApiError } from '../../services/http';
 import { startSession } from '../../services/session';
 import deviceName from '../../utils/deviceName';
@@ -69,16 +74,28 @@ export function useLoginForm(navigation) {
     setBusy(true);
     setError('');
     try {
-      await finish(
-        await loginWithPassword(form.identifier, form.password, deviceName()),
+      const result = await loginWithPassword(
+        form.identifier,
+        form.password,
+        deviceName(),
       );
+      if (result.otpRequired) {
+        // The password was right: a code went to the phone, the next screen asks for it
+        navigation.navigate('VerifyOtp', {
+          purpose: 'login',
+          challengeToken: result.challengeToken,
+          mobile: result.mobile,
+        });
+      } else {
+        await finish(result);
+      }
     } catch (e) {
       setError(e.message);
     } finally {
       sending.current = false;
       setBusy(false);
     }
-  }, [finish, form.identifier, form.password]);
+  }, [finish, form.identifier, form.password, navigation]);
 
   return { form, errors, error, busy, update, submit };
 }
@@ -131,15 +148,21 @@ export function useSignupForm(navigation) {
     setBusy(true);
     setError('');
     try {
-      await finish(
-        await registerAccount({
-          name: form.name.trim(),
-          email: form.email.trim(),
-          mobile,
-          password: form.password,
-          deviceName: deviceName(),
-        }),
-      );
+      const details = {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        mobile,
+        password: form.password,
+      };
+      const step = await requestSignupOtp(details);
+      if (step.otpRequired) {
+        // The code is on its way to the phone: the next screen checks it and then creates the account
+        navigation.navigate('VerifyOtp', { purpose: 'signup', details });
+      } else {
+        await finish(
+          await registerAccount({ ...details, deviceName: deviceName() }),
+        );
+      }
     } catch (e) {
       const named = serverFields(e, ['name', 'email', 'mobile', 'password']);
       if (Object.keys(named).length > 0) {
@@ -155,7 +178,72 @@ export function useSignupForm(navigation) {
       sending.current = false;
       setBusy(false);
     }
-  }, [finish, form.email, form.mobile, form.name, form.password]);
+  }, [finish, form.email, form.mobile, form.name, form.password, navigation]);
 
   return { form, errors, error, busy, update, submit };
+}
+
+// The code step, for a login (purpose 'login') and for a sign-up (purpose 'signup'). On success it ends like the
+// password forms do: tokens to the Keystore, profile saved, Main opens.
+export function useOtpForm(navigation, params) {
+  const finish = useFinish(navigation);
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const sending = useRef(false);
+
+  const update = value => {
+    setCode(value.replace(/\D/g, '').slice(0, 6));
+    setError('');
+  };
+
+  const submit = useCallback(async () => {
+    if (sending.current) {
+      return;
+    }
+    if (!/^\d{6}$/.test(code)) {
+      setError('Enter the 6-digit code.');
+      return;
+    }
+    sending.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const session =
+        params.purpose === 'login'
+          ? await verifyLoginOtp(params.challengeToken, code, deviceName())
+          : await registerAccount({
+              ...params.details,
+              code,
+              deviceName: deviceName(),
+            });
+      await finish(session);
+    } catch (e) {
+      // a conflict means the number or email was taken while the code was on its way
+      setError(serverFields(e, ['code']).code || e.message);
+    } finally {
+      sending.current = false;
+      setBusy(false);
+    }
+  }, [code, finish, params]);
+
+  // A new code, for a sign-up. (A login asks for the password again instead, which also sends a new code.)
+  const resend = useCallback(async () => {
+    if (sending.current || params.purpose !== 'signup') {
+      return;
+    }
+    sending.current = true;
+    setError('');
+    try {
+      await requestSignupOtp(params.details);
+      setNotice('A new code has been sent.');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      sending.current = false;
+    }
+  }, [params]);
+
+  return { code, error, notice, busy, update, submit, resend };
 }

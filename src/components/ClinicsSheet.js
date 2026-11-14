@@ -19,14 +19,21 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {PAGES} from '../data/store';
 import {colors, spacing} from '../theme';
 import {isValidPincode, searchByPincode, sortClinics} from '../utils/clinicSearch';
-import {getCurrentLocation} from '../utils/location';
+import {getApproximateLocation, getCurrentLocation} from '../utils/location';
 
 const CREAM = '#FFF9EC';
 const CREAM_BORDER = '#EFE2C4';
 
-const formatKm = km => (km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`);
+// Always in km, one decimal (0.7 km, 24.4 km, 1,164.3 km): never metres, so every row reads the same way
+const formatKm = km => `${km.toLocaleString('en-IN', {minimumFractionDigits: 1, maximumFractionDigits: 1})} km`;
 
 const openLink = url => Linking.openURL(url).catch(() => Alert.alert('Could not open', 'Please try again later.'));
+
+// The exact place for a clinic's map pin: its coordinates
+const pinUrl = clinic => `https://www.google.com/maps/search/?api=1&query=${clinic.lat},${clinic.lng}`;
+
+// Where the clinic is: the street address when we have it, otherwise its city and state
+const placeText = clinic => clinic.address || [clinic.city || clinic.area, clinic.state].filter(Boolean).join(', ');
 
 const directionsUrl = clinic =>
   `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
@@ -70,7 +77,7 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef(null);
 
-  const [gpsStatus, setGpsStatus] = useState('idle'); // idle | locating | found | error
+  const [gpsStatus, setGpsStatus] = useState('idle'); // idle | locating | found | approx | error
   const [gpsError, setGpsError] = useState(null);
   const [here, setHere] = useState(null);
 
@@ -88,8 +95,15 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
       setHere(await getCurrentLocation());
       setGpsStatus('found');
     } catch (e) {
-      setGpsError(e.message);
-      setGpsStatus('error');
+      // The phone's location is off or not allowed: a rough position still gives a distance for every clinic
+      try {
+        setHere(await getApproximateLocation());
+        setGpsError(e.message);
+        setGpsStatus('approx');
+      } catch {
+        setGpsError(e.message);
+        setGpsStatus('error');
+      }
     }
   }, []);
 
@@ -102,7 +116,7 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
   // A searched pincode wins over the phone's location
   const origin = pinResult?.point || (pinResult ? null : here);
   const clinics = useMemo(() => sortClinics(origin), [origin]);
-  const originLabel = pinResult ? pinResult.pincode : 'your location';
+  const originLabel = pinResult ? pinResult.pincode : gpsStatus === 'approx' ? 'your area (approx.)' : 'your location';
 
   const selected = clinics.find(c => c.clinic.id === selectedId) ||
     (pinResult?.clinic && clinics.find(c => c.clinic.id === pinResult.clinic.id)) ||
@@ -176,6 +190,16 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
                 <Text style={[styles.statusText, styles.statusInline]}>Sorted by distance from your location</Text>
               </View>
             )}
+            {gpsStatus === 'approx' && !pinResult && (
+              <>
+                <Text style={styles.statusText}>
+                  Distances are approximate, from your internet connection. {gpsError}
+                </Text>
+                <Pressable onPress={locate} hitSlop={8} style={styles.retry}>
+                  <Text style={styles.retryText}>Use exact location</Text>
+                </Pressable>
+              </>
+            )}
             {gpsStatus === 'error' && (
               <>
                 <Text style={styles.statusText}>{gpsError}</Text>
@@ -236,10 +260,23 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
                     <Text style={styles.name} numberOfLines={1}>
                       {clinic.name}
                     </Text>
-                    <Text style={styles.area} numberOfLines={1}>
-                      {clinic.area}
-                      {km !== undefined && <Text style={styles.km}>{`  ·  ${formatKm(km)}`}</Text>}
+                    <Text style={styles.area} numberOfLines={2}>
+                      {placeText(clinic)}
                     </Text>
+                    {km === undefined && (
+                      <Text style={styles.kmOff}>Turn on location or enter a pincode to see the distance</Text>
+                    )}
+                  </View>
+                  <View style={styles.rowEnd}>
+                    {km !== undefined && <Text style={styles.km}>{formatKm(km)}</Text>}
+                    <Pressable
+                      style={styles.mapBtn}
+                      onPress={() => openLink(pinUrl(clinic))}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open ${clinic.name} on the map`}>
+                      <Icon name="map-search-outline" size={20} color={colors.primaryDark} />
+                    </Pressable>
                   </View>
                 </Pressable>
               );
@@ -354,5 +391,8 @@ const styles = StyleSheet.create({
   rowText: {flex: 1, marginLeft: 14},
   name: {fontSize: 16, fontWeight: '600', color: colors.text},
   area: {fontSize: 13, color: colors.muted, marginTop: 2},
-  km: {fontWeight: '700', color: colors.primary},
+  rowEnd: {alignItems: 'flex-end', marginLeft: 8},
+  km: {fontSize: 15, fontWeight: '700', color: colors.primary},
+  kmOff: {fontSize: 12, color: colors.muted, marginTop: 3},
+  mapBtn: {width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryLight, marginTop: 4},
 });

@@ -19,6 +19,7 @@ import CartScreen from '../screens/CartScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import LoginScreen from '../screens/auth/LoginScreen';
+import VerifyOtpScreen from '../screens/auth/VerifyOtpScreen';
 import SignUpScreen from '../screens/auth/SignUpScreen';
 import ProductListScreen from '../screens/shop/ProductListScreen';
 import ProductDetailScreen from '../screens/shop/ProductDetailScreen';
@@ -34,7 +35,7 @@ import DaysTimesScreen from '../doctor/DaysTimesScreen';
 import MyVideosScreen from '../doctor/MyVideosScreen';
 import {useAuth} from '../context/AuthContext';
 import {useCart} from '../context/CartContext';
-import {colors} from '../theme';
+import {floatingTabOptions} from './floatingTabBar';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -80,12 +81,8 @@ function Tabs() {
   return (
     <Tab.Navigator
       screenOptions={({route}) => ({
-        headerShown: false,
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.muted,
+        ...floatingTabOptions(bottom),
         tabBarIcon: renderTabBarIcon(route),
-        tabBarLabelStyle: {fontSize: 11, fontWeight: '600', paddingBottom: 4},
-        tabBarStyle: {height: 60 + bottom, paddingBottom: 6 + bottom, paddingTop: 6},
       })}>
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Reels" component={ReelsScreen} options={{title: 'Reel'}} />
@@ -112,6 +109,7 @@ export default function AppNavigator() {
     <NavigationContainer>
       <Stack.Navigator initialRouteName="Splash" screenOptions={{headerShown: false}}>
         <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="VerifyOtp" component={VerifyOtpScreen} />
         <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen name="Splash" component={SplashScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{animation: 'fade'}} />

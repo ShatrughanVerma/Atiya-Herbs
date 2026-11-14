@@ -122,7 +122,7 @@ describe('health checks', () => {
 });
 
 describe('start-up configuration', () => {
-  const base = {DB_USER: 'u', DB_PASSWORD: 'p', JWT_ACCESS_SECRET: 'a'.repeat(40), OTP_PEPPER: 'b'.repeat(40)};
+  const base = {DB_USER: 'u', DB_PASSWORD: 'p', JWT_ACCESS_SECRET: 'a'.repeat(40), OTP_PEPPER: 'b'.repeat(40), MSG91_AUTH_KEY: 'k'.repeat(20), MSG91_TEMPLATE_ID: 'template123'};
 
   test('missing settings stop the server with a clear message', () => {
     expect(() => loadConfig({})).toThrow(/DB_USER[\s\S]*DB_PASSWORD[\s\S]*JWT_ACCESS_SECRET[\s\S]*OTP_PEPPER/);
@@ -143,13 +143,36 @@ describe('start-up configuration', () => {
     expect(loadConfig({...production, OTP_SENDER: 'sms'}).isProduction).toBe(true);
   });
 
-  test('in production without an SMS provider, asking for an OTP fails safely and prints no code', async () => {
+  test('OTP_SENDER=sms needs the MSG91 key and template', () => {
+    expect(() => loadConfig({...base, OTP_SENDER: 'sms', MSG91_AUTH_KEY: ''})).toThrow(/MSG91_AUTH_KEY/);
+    expect(() => loadConfig({...base, OTP_SENDER: 'sms', MSG91_TEMPLATE_ID: ''})).toThrow(/MSG91_TEMPLATE_ID/);
+  });
+
+  test('the MSG91 sender posts the code with the key in a header, and a provider failure is a safe 503', async () => {
+    const {createSmsOtpSender} = require('../src/otp/otpSender');
+    const config = loadConfig({...base, OTP_SENDER: 'sms'});
+    const calls = [];
+    const ok = createSmsOtpSender(config, {fetchImpl: async (url, init) => (calls.push({url, init}), {ok: true, json: async () => ({type: 'success'})})});
+    await ok.send('9876543210', '123456', 300);
+    expect(calls[0].url).toMatch(/^https:\/\/control\.msg91\.com\/api\/v5\/otp\?/);
+    expect(calls[0].url).toContain('mobile=919876543210');
+    expect(calls[0].url).toContain('otp=123456');
+    expect(calls[0].url).not.toContain(config.MSG91_AUTH_KEY);
+    expect(calls[0].init.headers.authkey).toBe(config.MSG91_AUTH_KEY);
+
+    const logged = [];
+    const bad = createSmsOtpSender(config, {fetchImpl: async () => ({ok: true, json: async () => ({type: 'error', message: 'bad template'})}), logger: {error: m => logged.push(m)}});
+    await expect(bad.send('9876543210', '123456', 300)).rejects.toMatchObject({status: 503});
+    expect(logged.join(' ')).not.toMatch(/123456/);
+  });
+
+  test('in production when the SMS provider is down, asking for an OTP fails safely and prints no code', async () => {
     const {createSmsOtpSender} = require('../src/otp/otpSender');
     const {createApp} = require('../src/app');
     const config = loadConfig({...base, NODE_ENV: 'production', OTP_SENDER: 'sms'});
     const printed = [];
     const logger = {info() {}, warn: m => printed.push(m), error: m => printed.push(m)};
-    const app = createApp({config, prisma: createFakePrisma(), sender: createSmsOtpSender(), logger});
+    const app = createApp({config, prisma: createFakePrisma(), sender: createSmsOtpSender(config, {fetchImpl: async () => { throw new Error('down'); }, logger}), logger});
 
     const res = await request(app).post('/api/v1/auth/otp/request').send({mobile: '9876543210'});
     expect(res.status).toBe(503);

@@ -5,6 +5,7 @@ import * as Keychain from 'react-native-keychain';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {AuthProvider, useAuth} from '../../src/context/AuthContext';
 import LoginScreen from '../../src/screens/auth/LoginScreen';
+import VerifyOtpScreen from '../../src/screens/auth/VerifyOtpScreen';
 import SignUpScreen from '../../src/screens/auth/SignUpScreen';
 import {endSession, setSessionExpiredHandler} from '../../src/services/session';
 import {loadTokens} from '../../src/services/tokenStore';
@@ -30,7 +31,7 @@ const SESSION = (user = {}) => ({
 
 let tree;
 let auth;
-const navigation = {replace: jest.fn(), navigate: jest.fn()};
+const navigation = {replace: jest.fn(), navigate: jest.fn(), goBack: jest.fn()};
 
 const Probe = () => {
   auth = useAuth();
@@ -208,11 +209,11 @@ describe('Sign up', () => {
   });
 
   test('a new account is made on the server (name, email, plain 10-digit mobile, password) and the app opens', async () => {
-    const calls = mockServer({'POST /auth/register': () => [201, SESSION()]});
+    const calls = mockServer({'POST /auth/register/otp': () => [200, {otpRequired: false}], 'POST /auth/register': () => [201, SESSION()]});
     await mount(SignUpScreen);
     await fill();
     await press('Create account');
-    expect(calls[0].body).toMatchObject({name: 'Asha Khan', email: 'asha@b.co', mobile: '9876543210', password: 'Herbal-Tea-42'});
+    expect(calls.find(c => c.key === 'POST /auth/register').body).toMatchObject({name: 'Asha Khan', email: 'asha@b.co', mobile: '9876543210', password: 'Herbal-Tea-42'});
     expect(await loadTokens()).toEqual({accessToken: 'a1', refreshToken: 'r1'});
     expect(auth.user).toMatchObject({name: 'Asha Khan', mobile: '9876543210', provider: 'password'});
     expect(navigation.replace).toHaveBeenCalledWith('Main');
@@ -221,7 +222,7 @@ describe('Sign up', () => {
 
   test('a mobile or email that is already registered is shown under its own box', async () => {
     let message = 'This mobile number is already registered. Please log in.';
-    mockServer({'POST /auth/register': () => [409, {statusCode: 409, message}]});
+    mockServer({'POST /auth/register/otp': () => [200, {otpRequired: false}], 'POST /auth/register': () => [409, {statusCode: 409, message}]});
     await mount(SignUpScreen);
     await fill();
     await press('Create account');
@@ -236,6 +237,7 @@ describe('Sign up', () => {
 
   test('the server\'s complaint about a box (a common password) is shown under that box', async () => {
     mockServer({
+      'POST /auth/register/otp': () => [200, {otpRequired: false}], 
       'POST /auth/register': () => [400, {statusCode: 400, message: 'Some details are not valid.', details: [{field: 'password', message: 'This password is too common. Please choose another one.'}]}],
     });
     await mount(SignUpScreen);
@@ -243,5 +245,67 @@ describe('Sign up', () => {
     await press('Create account');
     expect(hasText(/too common/)).toBe(true);
     expect(auth.user).toBeNull();
+  });
+});
+
+describe('SMS code (OTP) step', () => {
+  test('login: a right password opens the code screen instead of the app; the right code then logs in', async () => {
+    const calls = mockServer({
+      'POST /auth/login': () => [200, {otpRequired: true, challengeToken: 'proof-token', mobile: '******3210', expiresInSeconds: 300}],
+      'POST /auth/login/verify': () => [200, SESSION()],
+    });
+    await mount(LoginScreen);
+    await type('Email or mobile number', 'asha@b.co');
+    await type('Password', 'Herbal-Tea-42');
+    await press('Log in');
+    expect(navigation.navigate).toHaveBeenCalledWith('VerifyOtp', {purpose: 'login', challengeToken: 'proof-token', mobile: '******3210'});
+    expect(navigation.replace).not.toHaveBeenCalled();
+    expect(await loadTokens()).toBeNull();
+
+    navigation.replace.mockClear();
+    await tree.unmount();
+    await mount(({navigation: nav}) => <VerifyOtpScreen navigation={nav} route={{params: {purpose: 'login', challengeToken: 'proof-token', mobile: '******3210'}}} />);
+    await press('Verify and log in');
+    expect(hasText(/Enter the 6-digit code/)).toBe(true); // empty box: nothing is sent
+    await type('6-digit code', '12ab34 56');
+    expect(control('6-digit code', 'onChangeText').props.value).toBe('123456');
+    await press('Verify and log in');
+    expect(calls.find(c => c.key === 'POST /auth/login/verify').body).toMatchObject({challengeToken: 'proof-token', code: '123456'});
+    expect(await loadTokens()).toEqual({accessToken: 'a1', refreshToken: 'r1'});
+    expect(navigation.replace).toHaveBeenCalledWith('Main');
+  });
+
+  test('a wrong code shows the server message and logs nobody in', async () => {
+    mockServer({'POST /auth/login/verify': () => [401, {statusCode: 401, message: 'The code is wrong or has expired.'}]});
+    await mount(({navigation: nav}) => <VerifyOtpScreen navigation={nav} route={{params: {purpose: 'login', challengeToken: 't', mobile: '******3210'}}} />);
+    await type('6-digit code', '000000');
+    await press('Verify and log in');
+    expect(hasText(/wrong or has expired/)).toBe(true);
+    expect(auth.user).toBeNull();
+  });
+
+  test('sign-up: the number is verified first, then the account is made with the code', async () => {
+    const calls = mockServer({
+      'POST /auth/register/otp': () => [200, {otpRequired: true, expiresInSeconds: 300}],
+      'POST /auth/register': () => [201, SESSION()],
+    });
+    await mount(SignUpScreen);
+    await type('Full name', 'Asha Khan');
+    await type('Email', 'asha@b.co');
+    await type('Mobile number', '98765 43210');
+    await type('Create a password', 'Herbal-Tea-42');
+    await press('Create account');
+    const details = {name: 'Asha Khan', email: 'asha@b.co', mobile: '9876543210', password: 'Herbal-Tea-42'};
+    expect(navigation.navigate).toHaveBeenCalledWith('VerifyOtp', {purpose: 'signup', details});
+    expect(calls.map(c => c.key)).toEqual(['POST /auth/register/otp']); // no account yet
+
+    await tree.unmount();
+    await mount(({navigation: nav}) => <VerifyOtpScreen navigation={nav} route={{params: {purpose: 'signup', details}}} />);
+    await press('Resend');
+    expect(hasText(/new code has been sent/)).toBe(true);
+    await type('6-digit code', '654321');
+    await press('Verify and create account');
+    expect(calls.at(-1).body).toMatchObject({...details, code: '654321'});
+    expect(navigation.replace).toHaveBeenCalledWith('Main');
   });
 });

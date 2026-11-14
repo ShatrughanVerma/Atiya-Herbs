@@ -42,6 +42,10 @@ const BEST_SELLER_CONCERNS = [
 ];
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// Every carousel card has the same size: the width of the screen minus the side margins, and the height of the
+// wide banner pictures (they are 1200 x 557). The older text-and-photo cards are made to fit the same height.
+const CARD_WIDTH = SCREEN_WIDTH - spacing.md * 2;
+const CARD_HEIGHT = Math.round(CARD_WIDTH / (1200 / 557));
 
 const QUICK_ACTIONS = [
   {
@@ -69,6 +73,13 @@ const QUICK_ACTIONS = [
     route: 'Calls',
   },
 ];
+
+// A bundled picture that is already a finished wide banner (wider than 1.6 : 1, text and button included)
+// The older banners are small product photos that sit beside the text, so they are not wide.
+const isFullBanner = image => {
+  const size = image && typeof image === 'number' ? Image.resolveAssetSource(image) : null;
+  return !!size && size.width / size.height > 1.6;
+};
 
 export default function HomeScreen({ navigation }) {
   const { count } = useCart();
@@ -108,7 +119,7 @@ export default function HomeScreen({ navigation }) {
         const nextIndex = (prevIndex + 1) % banners.length;
         if (scrollViewRef.current) {
           scrollViewRef.current.scrollTo({
-            x: nextIndex * (SCREEN_WIDTH - spacing.md * 2),
+            x: nextIndex * CARD_WIDTH,
             animated: true,
           });
         }
@@ -242,43 +253,62 @@ export default function HomeScreen({ navigation }) {
               onScroll={handleScroll}
               scrollEventThrottle={16}
             >
-              {CAROUSEL_ITEMS.map(item => (
-                <View
-                  key={item.id}
-                  style={[
-                    styles.heroBanner,
-                    { width: SCREEN_WIDTH - spacing.md * 2 },
-                    item.gradient && { backgroundImage: item.gradient },
-                  ]}
-                >
-                  <View style={styles.heroTextContainer}>
-                    <Text style={styles.heroBadge}>{item.badge}</Text>
-                    <Text style={styles.heroTitle}>{item.title}</Text>
+              {CAROUSEL_ITEMS.map(item => {
+                const open = () =>
+                  navigation.navigate(
+                    'ProductList',
+                    item.concern
+                      ? { title: item.badge, concern: item.concern }
+                      : item.category
+                      ? { title: item.badge, category: item.category }
+                      : { title: 'All Products' },
+                  );
+                const full = isFullBanner(item.image);
+                // A finished, wide banner picture (its text and "Shop Now" are part of the picture): show it alone
+                if (full) {
+                  return (
                     <Pressable
-                      style={styles.heroBtn}
-                      onPress={() =>
-                        navigation.navigate(
-                          'ProductList',
-                          item.concern
-                            ? { title: item.badge, concern: item.concern }
-                            : item.category
-                            ? { title: item.badge, category: item.category }
-                            : { title: 'All Products' },
-                        )
-                      }
+                      key={item.id}
+                      onPress={open}
+                      style={styles.fullBanner}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${item.badge ?? 'Offer'}: Shop Now`}
                     >
-                      <Text style={styles.heroBtnText}>Shop Now</Text>
+                      <Image
+                        source={item.image}
+                        style={styles.fullBannerImage}
+                        resizeMode="cover"
+                      />
                     </Pressable>
+                  );
+                }
+                return (
+                  <View
+                    key={item.id}
+                    style={[
+                      styles.heroBanner,
+                      item.gradient && { backgroundImage: item.gradient },
+                    ]}
+                  >
+                    <View style={styles.heroTextContainer}>
+                      <Text style={styles.heroBadge}>{item.badge}</Text>
+                      <Text style={styles.heroTitle} numberOfLines={3}>
+                        {item.title}
+                      </Text>
+                      <Pressable style={styles.heroBtn} onPress={open}>
+                        <Text style={styles.heroBtnText}>Shop Now</Text>
+                      </Pressable>
+                    </View>
+                    {!!item.image && (
+                      <Image
+                        source={item.image}
+                        style={styles.heroImage}
+                        resizeMode="cover"
+                      />
+                    )}
                   </View>
-                  {!!item.image && (
-                    <Image
-                      source={item.image}
-                      style={styles.heroImage}
-                      resizeMode="cover"
-                    />
-                  )}
-                </View>
-              ))}
+                );
+              })}
             </ScrollView>
 
             {/* Pagination Dots */}
@@ -667,13 +697,16 @@ const styles = StyleSheet.create({
   },
   micIcon: { width: 20, height: 20, tintColor: colors.muted },
   carouselContainer: { marginBottom: spacing.md },
+  fullBanner: { width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 16, overflow: 'hidden' },
+  fullBannerImage: { width: '100%', height: '100%' },
   heroBanner: {
     // Fallback colour where gradients are unsupported
     backgroundColor: colors.primaryDark,
     backgroundImage: `linear-gradient(135deg, ${colors.primaryDark} 0%, ${colors.primary} 60%, #3FA36A 100%)`,
     borderRadius: 16,
-    height: 200,
-    padding: spacing.md,
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
+    padding: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     overflow: 'hidden',
@@ -686,27 +719,27 @@ const styles = StyleSheet.create({
   },
   heroTextContainer: { flex: 1, paddingRight: spacing.xs },
   heroBadge: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: '#FFD54F',
-    marginBottom: 6,
+    marginBottom: 4,
     letterSpacing: 0.5,
   },
   heroTitle: {
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '800',
     color: '#FFFFFF',
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   heroBtn: {
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
     borderRadius: 20,
     alignSelf: 'flex-start',
   },
-  heroBtnText: { color: '#1B4D3E', fontWeight: '700', fontSize: 14 },
+  heroBtnText: { color: '#1B4D3E', fontWeight: '700', fontSize: 13 },
   dotsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',

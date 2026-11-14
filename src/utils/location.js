@@ -1,3 +1,4 @@
+import axios from 'axios';
 import {PermissionsAndroid, Platform} from 'react-native';
 
 const LOCATION_OFF_MESSAGE =
@@ -57,6 +58,24 @@ export async function getCurrentLocation() {
       throw new Error(LOCATION_OFF_MESSAGE);
     }
   }
+}
+
+/**
+ * A rough position (about the size of a city) from the phone's internet connection, for when the phone's own location
+ * is off or not allowed. Resolves to {lat, lng}; rejects with a safe message if that is not possible either.
+ */
+export async function getApproximateLocation() {
+  try {
+    const res = await axios.get('https://ipapi.co/json/', {timeout: 8000});
+    const lat = Number(res.data?.latitude);
+    const lng = Number(res.data?.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return {lat, lng};
+    }
+  } catch {
+    // falls through to the message below
+  }
+  throw new Error('Could not work out your area. Please check your internet, or enter a pincode.');
 }
 
 /** Straight-line distance in km between two {lat, lng} points. */

@@ -60,6 +60,24 @@ function createAuthService({prisma, otp, tokens, audit, config}) {
     await audit.record({action, userId: record.userId, ip: ctx.ip, userAgent: ctx.userAgent});
   }
 
+  // The end of a successful login (password, and the code when it is required): reset the wrong-password count
+  // and open the session
+  async function finishLogin(user, deviceName, ctx) {
+    const loggedIn = await prisma.user.update({where: {id: user.id}, data: {failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date()}});
+    const session = await startSession(loggedIn, ctx, randomUUID(), deviceName);
+    await audit.record({action: 'auth.login_success', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent});
+    return session;
+  }
+
+  async function assertFree(mobile, email) {
+    const taken = await prisma.user.findFirst({where: {OR: [{mobile}, {email}]}});
+    if (taken) {
+      throw taken.mobile === mobile
+        ? conflict('This mobile number is already registered. Please log in.')
+        : conflict('This email is already registered. Please log in.');
+    }
+  }
+
   return {
     async requestOtp(mobile, ctx) {
       const result = await otp.request(mobile, ctx.ip);
@@ -90,18 +108,36 @@ function createAuthService({prisma, otp, tokens, audit, config}) {
       return session;
     },
 
-    // New account with a mobile number, email and password. Nothing proves the number belongs to this person yet
-    // (there is no OTP step in this flow), so see the note in README.md before going live.
-    async register({name, email, mobile, password, deviceName}, ctx) {
+    // Step 1 of a sign-up (only when OTP_REQUIRED is on): checks the number and email are free, then sends the
+    // code to the number, so the account can only be made by someone who holds that phone.
+    async requestSignupOtp({mobile, email}, ctx) {
+      await assertFree(mobile, email);
+      if (!config.OTP_REQUIRED) {
+        return {otpRequired: false};
+      }
+      const result = {otpRequired: true, ...(await otp.request(mobile, ctx.ip))};
+      await audit.record({action: 'auth.signup_otp.requested', ip: ctx.ip, userAgent: ctx.userAgent, metadata: {mobile: maskMobile(mobile)}});
+      return result;
+    },
+
+    // New account with a mobile number, email and password. When OTP_REQUIRED is on, `code` (sent by
+    // requestSignupOtp) must be right: that is the proof that the number belongs to this person.
+    async register({name, email, mobile, password, code, deviceName}, ctx) {
       const problem = passwordProblem(password, {mobile, email});
       if (problem) {
         throw badRequest('Some details are not valid.', [{field: 'password', message: problem}]);
       }
-      const taken = await prisma.user.findFirst({where: {OR: [{mobile}, {email}]}});
-      if (taken) {
-        throw taken.mobile === mobile
-          ? conflict('This mobile number is already registered. Please log in.')
-          : conflict('This email is already registered. Please log in.');
+      await assertFree(mobile, email);
+      if (config.OTP_REQUIRED) {
+        if (!code) {
+          throw badRequest('Some details are not valid.', [{field: 'code', message: 'Enter the 6-digit code sent to your mobile number.'}]);
+        }
+        try {
+          await otp.verify(mobile, code);
+        } catch (error) {
+          await audit.record({action: 'auth.otp.failed', ip: ctx.ip, userAgent: ctx.userAgent, metadata: {mobile: maskMobile(mobile)}});
+          throw error;
+        }
       }
       const passwordHash = await hashPassword(password);
       let user;
@@ -151,10 +187,34 @@ function createAuthService({prisma, otp, tokens, audit, config}) {
         await audit.record({action: 'auth.login.blocked', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent});
         throw forbidden('This account cannot be used. Please contact support.');
       }
-      const loggedIn = await prisma.user.update({where: {id: user.id}, data: {failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date()}});
-      const session = await startSession(loggedIn, ctx, randomUUID(), deviceName);
-      await audit.record({action: 'auth.login_success', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent});
-      return session;
+      if (config.OTP_REQUIRED) {
+        // Right password, but no session yet: a code goes to the number on the account, and the app comes back with it
+        const sent = await otp.request(user.mobile, ctx.ip);
+        await audit.record({action: 'auth.login_otp.requested', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent, metadata: {mobile: maskMobile(user.mobile)}});
+        return {otpRequired: true, challengeToken: tokens.signLoginChallenge(user), mobile: maskMobile(user.mobile), ...sent};
+      }
+      return finishLogin(user, deviceName, ctx);
+    },
+
+    // Step 2 of a login: the proof that the password was right (challengeToken) plus the code sent by SMS
+    async verifyLogin({challengeToken, code, deviceName}, ctx) {
+      let userId;
+      try {
+        userId = tokens.verifyLoginChallenge(challengeToken).sub;
+      } catch {
+        throw unauthorized('Please log in again.');
+      }
+      const user = await prisma.user.findUnique({where: {id: userId}});
+      if (!user || user.status !== 'active') {
+        throw unauthorized('Please log in again.');
+      }
+      try {
+        await otp.verify(user.mobile, code);
+      } catch (error) {
+        await audit.record({action: 'auth.login_otp.failed', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent});
+        throw error;
+      }
+      return finishLogin(user, deviceName, ctx);
     },
 
     // Changes the password of the logged-in user. Every login of this account ends (all refresh tokens), and the
