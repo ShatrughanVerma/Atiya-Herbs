@@ -10,6 +10,18 @@ const {createConferences} = require('./conferences');
 const {createRecordingStore} = require('./recordingStore');
 const {createEgressClient, createRecordingService} = require('./recording');
 const {createCloudinaryArchiver} = require('./cloudinaryArchive');
+const {createRecordingServerArchiver} = require('./recordingServerArchiver');
+const {createStagingArchiver} = require('./stagingArchiver');
+
+function chooseArchiver(env, log) {
+  // RECORDING_ARCHIVE=staging: leave the chunks in the bucket; the Recording Server pulls them from there
+  const staging = createStagingArchiver({env});
+  if (staging.available) {
+    return staging;
+  }
+  const recordingServer = createRecordingServerArchiver({env, log});
+  return recordingServer.available ? recordingServer : createCloudinaryArchiver({env, log});
+}
 
 // `overrides` lets tests replace the LiveKit egress client and the details store with fakes
 function createCallBackend(env = process.env, log = console.log, overrides = {}) {
@@ -24,7 +36,8 @@ function createCallBackend(env = process.env, log = console.log, overrides = {})
     env,
     store,
     egress: overrides.egress || createEgressClient(env),
-    archiver: overrides.archiver || createCloudinaryArchiver({env, log}),
+    // RECORDING_SERVER_URL + RECORDING_SERVER_KEY: chunks go to the separate Recording Server; otherwise Cloudinary
+    archiver: overrides.archiver || chooseArchiver(env, log),
     livekitConfigured: tokens.livekitConfigured,
     log,
   });

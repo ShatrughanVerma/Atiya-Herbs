@@ -126,6 +126,8 @@ function createRecordingService({
         started_at: now.toISOString(),
         created_at: now.toISOString(),
       });
+      // With the Recording Server as the destination, chunks are forwarded while the call is still going
+      archiver?.watch?.({bucket, objectKey: key, mode});
       return {ok: true, id: info.egressId};
     } catch (e) {
       log(`could not start recording: ${e.message}`);
@@ -195,7 +197,20 @@ function createRecordingService({
         sizeBytes,
         mode: row.mode,
       });
-      if (result.ok) {
+      if (result.ok && (result.destination === 'recording-server' || result.destination === 'staging')) {
+        // delivered to the Recording Server, which joins and compresses the chunks on its own disk
+        await store.update(id, {
+          ...(salvage ? {status: 'partial'} : {}),
+          destination: result.destination,
+          size_bytes: result.bytes || sizeBytes,
+          error: null,
+        });
+        log(
+          result.destination === 'staging'
+            ? `recording ${id} left in the staging bucket for the recording server to pull`
+            : `recording ${id} sent to the recording server (${result.chunks} chunk(s))`,
+        );
+      } else if (result.ok) {
         await store.update(id, {
           ...(salvage ? {status: 'partial'} : {}), // the call's recording stopped early; this is the part that was saved
           destination: 'cloudinary',
@@ -210,7 +225,7 @@ function createRecordingService({
         log(`recording ${id} stored in Cloudinary (${sizeBytes ?? '?'} -> ${result.bytes ?? '?'} bytes${result.compressed ? ', compressed' : ''})`);
       } else if (!salvage) {
         // (when salvaging, the recording's own failure message is kept instead)
-        await store.update(id, {error: `Cloudinary copy failed (${result.error}); the file is still in R2`});
+        await store.update(id, {error: `${archiver.destination === 'recording-server' ? 'Recording server' : 'Cloudinary'} copy failed (${result.error}); the file is still in R2`});
       }
     } finally {
       inProgress.delete(id);
@@ -234,7 +249,7 @@ function createRecordingService({
   return {
     available,
     mode,
-    destination: archiver?.available ? 'cloudinary' : 'r2',
+    destination: archiver?.available ? archiver.destination || 'cloudinary' : 'r2',
     compression: !!(archiver?.available && archiver.compression),
     start,
     stopAndFinish,
