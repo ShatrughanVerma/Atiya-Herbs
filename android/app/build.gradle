@@ -57,7 +57,7 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -127,6 +127,7 @@ android {
             // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
@@ -143,4 +144,6 @@ dependencies {
     }
 }
 
+// Only the icon font the app uses (MaterialCommunityIcons) goes into the APK, not all of the library's fonts
+project.ext.vectoricons = [iconFontNames: ['MaterialCommunityIcons.ttf']]
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import CategoryMenu from '../components/shop/CategoryMenu';
 import ProductCard from '../components/shop/ProductCard';
 import ClinicLocator from '../components/ClinicLocator';
 import { useCart } from '../context/CartContext';
@@ -25,12 +26,6 @@ import {
 } from '../components/shop/CatalogStatus';
 import { useCatalog } from '../context/CatalogContext';
 import { colors, spacing } from '../theme';
-
-const ANNOUNCEMENTS = [
-  '100% Ayurvedic & Unani Products',
-  'Extra 5% off on app orders · Code: APP5',
-  'Free delivery across India (4–7 days)',
-];
 
 const BEST_SELLER_CONCERNS = [
   'joint-pain',
@@ -64,7 +59,7 @@ const QUICK_ACTIONS = [
     id: '3',
     title: 'Shop Ayurveda',
     icon: require('../assets/icons/shop_ayurveda.png'),
-    route: 'Explore',
+    route: 'Categories',
   },
   {
     id: '4',
@@ -94,21 +89,12 @@ export default function HomeScreen({ navigation }) {
   ];
   const FEATURED = products.filter(p => !p.bestseller && p.inStock).slice(0, 4);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [announcementIndex, setAnnouncementIndex] = useState(0);
   const [bestSellerTab, setBestSellerTab] = useState('all');
   const scrollViewRef = useRef(null);
   const tabProducts =
     bestSellerTab === 'all'
       ? products.filter(p => p.bestseller)
       : products.filter(p => p.concerns.includes(bestSellerTab));
-
-  useEffect(() => {
-    const timer = setInterval(
-      () => setAnnouncementIndex(i => (i + 1) % ANNOUNCEMENTS.length),
-      3000,
-    );
-    return () => clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     if (banners.length === 0) {
@@ -163,11 +149,6 @@ export default function HomeScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.announcement}>
-        <Text style={styles.announcementText} numberOfLines={1}>
-          {ANNOUNCEMENTS[announcementIndex]}
-        </Text>
-      </View>
       {/* Header */}
       <View style={styles.header}>
         <Image
@@ -215,6 +196,14 @@ export default function HomeScreen({ navigation }) {
       >
         {/* Search Bar */}
         <View style={styles.searchRow}>
+          {/* Category menu, to the left of the search bar */}
+          <CategoryMenu
+            size={40}
+            categories={categories}
+            counts={Object.fromEntries(categories.map(c => [c.id, products.filter(p => p.category === c.id).length]))}
+            onSelect={cat => navigation.navigate('ProductList', { title: cat.name, category: cat.id })}
+            onAll={() => navigation.navigate('ProductList', { title: 'All Products' })}
+          />
           <Pressable
             style={styles.searchContainer}
             onPress={() => navigation.navigate('Search')}
@@ -335,8 +324,8 @@ export default function HomeScreen({ navigation }) {
               onPress={() => {
                 if (action.route === 'Clinic') {
                   navigation.navigate('Clinic');
-                } else if (action.route === 'Explore') {
-                  navigation.navigate('Explore');
+                } else if (action.route === 'Categories') {
+                  navigation.navigate('Categories');
                 } else if (action.route === 'Calls') {
                   navigation.navigate('Calls');
                 } else {
@@ -417,39 +406,6 @@ export default function HomeScreen({ navigation }) {
 
         {ready ? (
           <>
-            {/* Categories */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Categories</Text>
-              <Pressable onPress={() => navigation.navigate('Explore')}>
-                <Text style={styles.seeAll}>See All</Text>
-              </Pressable>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.categoriesScroll}
-            >
-              {categories.map(cat => (
-                <Pressable
-                  key={cat.id}
-                  style={styles.categoryItem}
-                  onPress={() =>
-                    navigation.navigate('ProductList', {
-                      title: cat.name,
-                      category: cat.id,
-                    })
-                  }
-                >
-                  <View style={styles.categoryCircle}>
-                    <Icon name={cat.icon} size={26} color={colors.primary} />
-                  </View>
-                  <Text style={styles.categoryText} numberOfLines={1}>
-                    {cat.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-
             {/* Shop by Concern */}
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Shop by Concern</Text>
@@ -622,7 +578,7 @@ export default function HomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   // Extra bottom space so the floating clinic card never hides the last section
-  scrollContent: { padding: spacing.md, paddingBottom: 120 },
+  scrollContent: { paddingHorizontal: spacing.md, paddingTop: spacing.xs, paddingBottom: 120 },
   clinicLocator: {
     position: 'absolute',
     left: spacing.sm,
@@ -634,21 +590,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.xs,
     backgroundColor: colors.background,
   },
   headerLogo: { width: 84, height: 27 },
   headerRight: { flexDirection: 'row', alignItems: 'center' },
   iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
   iconBtnSpacing: { marginLeft: 8 },
-  headerIcon: { width: 20, height: 20 },
+  headerIcon: { width: 18, height: 18 },
   cartBadge: {
     position: 'absolute',
     top: -4,
@@ -666,19 +622,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
-  // Same size and look as the Sign-up screen's input fields
+  // Same look as the Sign-up screen's input fields, a little lower to keep the top of the screen compact
   searchContainer: {
-    width: SCREEN_WIDTH - 80,
+    width: SCREEN_WIDTH - 32 - 44, // the menu button (40) and a gap (4) sit on its left
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.background,
     borderWidth: 1.2,
     borderColor: '#C5CCC7',
-    borderRadius: 30,
-    paddingHorizontal: 20,
-    height: 60,
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    height: 46,
   },
   searchIcon: { width: 20, height: 20, marginRight: 10 },
   searchPlaceholder: {
@@ -824,24 +780,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.text },
   seeAll: { fontSize: 13, fontWeight: '600', color: colors.primary },
-  categoriesScroll: { marginBottom: spacing.lg },
-  categoryItem: { alignItems: 'center', marginRight: 14, width: 72 },
-  categoryCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  categoryText: {
-    marginTop: 6,
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.text,
-  },
   productsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -849,17 +787,6 @@ const styles = StyleSheet.create({
   },
   productCard: { width: '48.5%', marginBottom: 12 },
   bestSellerCard: { width: 160, marginRight: 12 },
-  announcement: {
-    backgroundColor: colors.primary,
-    paddingVertical: 7,
-    paddingHorizontal: spacing.md,
-  },
-  announcementText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
   concernGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

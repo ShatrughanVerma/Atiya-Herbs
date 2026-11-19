@@ -14,7 +14,7 @@ export default function ExploreScreen({navigation}) {
   if (!ready) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
-        <Text style={styles.title}>Explore</Text>
+        <Text style={styles.title}>Categories</Text>
         <CatalogUnavailable />
       </SafeAreaView>
     );
@@ -24,7 +24,7 @@ export default function ExploreScreen({navigation}) {
     <SafeAreaView style={styles.container} edges={['top']}>
       <OfflineBanner />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>Explore</Text>
+        <Text style={styles.title}>Categories</Text>
 
         <View style={styles.searchRow}>
           <Pressable style={styles.search} onPress={() => navigation.navigate('Search')}>

@@ -18,7 +18,8 @@ import {useIsFocused} from '@react-navigation/native';
 import {CLINICS, CONTACT, PAGES} from '../data/store';
 import ClinicsSheet from './ClinicsSheet';
 import {colors} from '../theme';
-import {searchByPincode} from '../utils/clinicSearch';
+import {formatDistance, searchByPincode} from '../utils/clinicSearch';
+import {loadClinicOrigin} from '../utils/clinicOrigin';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -30,7 +31,7 @@ const CREAM_BORDER = '#EFE2C4';
 const INK = '#1F2A22';
 const SOFT = '#6B746D';
 
-const formatKm = km => (km < 10 ? `${km.toFixed(1)} km away` : `${Math.round(km)} km away`);
+const formatKm = km => `${formatDistance(km)} away`;
 
 // The clinics sheet opens by itself only once per app launch
 let sheetShownThisLaunch = false;
@@ -119,6 +120,11 @@ export default function ClinicLocator({style}) {
   const [result, setResult] = useState(null); // {pincode?, district, state, clinic, km?}
 
   // Home can stay mounted under other screens (e.g. Login), so only auto-open while it is on screen
+  // Find where the person is and how far every clinic is as soon as the app opens, so the list is ready when shown
+  useEffect(() => {
+    loadClinicOrigin();
+  }, []);
+
   const focused = useIsFocused();
   useEffect(() => {
     if (focused && !sheetShownThisLaunch) {

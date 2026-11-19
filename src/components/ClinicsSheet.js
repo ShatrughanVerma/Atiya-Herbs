@@ -18,29 +18,27 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {PAGES} from '../data/store';
 import {colors, spacing} from '../theme';
-import {isValidPincode, searchByPincode, sortClinics} from '../utils/clinicSearch';
-import {getApproximateLocation, getCurrentLocation} from '../utils/location';
+import {fetchRoadDistances, formatDistance, isValidPincode, searchByPincode, sortClinics} from '../utils/clinicSearch';
+import {cachedClinicOrigin, loadClinicOrigin} from '../utils/clinicOrigin';
 
 const CREAM = '#FFF9EC';
 const CREAM_BORDER = '#EFE2C4';
 
-// Always in km, one decimal (0.7 km, 24.4 km, 1,164.3 km): never metres, so every row reads the same way
-const formatKm = km => `${km.toLocaleString('en-IN', {minimumFractionDigits: 1, maximumFractionDigits: 1})} km`;
+const formatKm = formatDistance;
 
 const openLink = url => Linking.openURL(url).catch(() => Alert.alert('Could not open', 'Please try again later.'));
-
-// The exact place for a clinic's map pin: its coordinates
-const pinUrl = clinic => `https://www.google.com/maps/search/?api=1&query=${clinic.lat},${clinic.lng}`;
 
 // Where the clinic is: the street address when we have it, otherwise its city and state
 const placeText = clinic => clinic.address || [clinic.city || clinic.area, clinic.state].filter(Boolean).join(', ');
 
-const directionsUrl = clinic =>
-  `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-    clinic.address || `${clinic.lat},${clinic.lng}`,
-  )}`;
+// Google Maps with the route already drawn: it starts from where the person is (when we know it), so Google shows the
+// distance and time straight away instead of asking for a starting point
+const directionsUrl = (clinic, origin) =>
+  `https://www.google.com/maps/dir/?api=1${origin ? `&origin=${origin.lat},${origin.lng}` : ''}&destination=${encodeURIComponent(
+    clinic.mapQuery || clinic.address || `${clinic.lat},${clinic.lng}`,
+  )}&travelmode=driving`;
 
-function SelectedClinic({clinic, km, from}) {
+function SelectedClinic({clinic, km, from, origin}) {
   return (
     <View style={styles.card}>
       <Text style={styles.cardName}>{clinic.name}</Text>
@@ -59,7 +57,7 @@ function SelectedClinic({clinic, km, from}) {
           <Icon name="calendar-check-outline" size={20} color="#fff" />
           <Text style={styles.cardBtnPrimaryText}>Book appointment</Text>
         </Pressable>
-        <Pressable style={[styles.cardBtn, styles.cardBtnSecondary]} onPress={() => openLink(directionsUrl(clinic))}>
+        <Pressable style={[styles.cardBtn, styles.cardBtnSecondary]} onPress={() => openLink(directionsUrl(clinic, origin))}>
           <Icon name="directions" size={20} color={colors.primaryDark} />
           <Text style={styles.cardBtnSecondaryText}>Directions</Text>
         </Pressable>
@@ -77,9 +75,11 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef(null);
 
-  const [gpsStatus, setGpsStatus] = useState('idle'); // idle | locating | found | approx | error
-  const [gpsError, setGpsError] = useState(null);
-  const [here, setHere] = useState(null);
+  // The position and distances are looked up when the app opens (see ClinicLocator), so they are often ready already
+  const ready = cachedClinicOrigin();
+  const [gpsStatus, setGpsStatus] = useState(ready?.here ? (ready.approx ? 'approx' : 'found') : 'idle'); // idle | locating | found | approx | error
+  const [gpsError, setGpsError] = useState(ready?.error ?? null);
+  const [here, setHere] = useState(ready?.here ?? null);
 
   const [pincode, setPincode] = useState('');
   const [searching, setSearching] = useState(false);
@@ -88,23 +88,13 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
 
   const [selectedId, setSelectedId] = useState(null);
 
-  const locate = useCallback(async () => {
+  const locate = useCallback(async (force = false) => {
     setGpsStatus('locating');
     setGpsError(null);
-    try {
-      setHere(await getCurrentLocation());
-      setGpsStatus('found');
-    } catch (e) {
-      // The phone's location is off or not allowed: a rough position still gives a distance for every clinic
-      try {
-        setHere(await getApproximateLocation());
-        setGpsError(e.message);
-        setGpsStatus('approx');
-      } catch {
-        setGpsError(e.message);
-        setGpsStatus('error');
-      }
-    }
+    const found = await loadClinicOrigin(force === true);
+    setHere(found.here);
+    setGpsError(found.error);
+    setGpsStatus(found.here ? (found.approx ? 'approx' : 'found') : 'error');
   }, []);
 
   useEffect(() => {
@@ -115,7 +105,24 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
 
   // A searched pincode wins over the phone's location
   const origin = pinResult?.point || (pinResult ? null : here);
-  const clinics = useMemo(() => sortClinics(origin), [origin]);
+  // Distance by road for every clinic (like Google Maps); until it arrives, or if it fails, the straight line is shown
+  const [road, setRoad] = useState({});
+  useEffect(() => {
+    let current = true;
+    const saved = cachedClinicOrigin();
+    if (origin && saved && origin === saved.here) {
+      setRoad(saved.road); // already fetched when the app opened
+      return undefined;
+    }
+    setRoad({});
+    if (origin) {
+      fetchRoadDistances(origin).then(found => current && setRoad(found));
+    }
+    return () => {
+      current = false;
+    };
+  }, [origin]);
+  const clinics = useMemo(() => sortClinics(origin, road), [origin, road]);
   const originLabel = pinResult ? pinResult.pincode : gpsStatus === 'approx' ? 'your area (approx.)' : 'your location';
 
   const selected = clinics.find(c => c.clinic.id === selectedId) ||
@@ -195,7 +202,7 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
                 <Text style={styles.statusText}>
                   Distances are approximate, from your internet connection. {gpsError}
                 </Text>
-                <Pressable onPress={locate} hitSlop={8} style={styles.retry}>
+                <Pressable onPress={() => locate(true)} hitSlop={8} style={styles.retry}>
                   <Text style={styles.retryText}>Use exact location</Text>
                 </Pressable>
               </>
@@ -203,7 +210,7 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
             {gpsStatus === 'error' && (
               <>
                 <Text style={styles.statusText}>{gpsError}</Text>
-                <Pressable onPress={locate} hitSlop={8} style={styles.retry}>
+                <Pressable onPress={() => locate(true)} hitSlop={8} style={styles.retry}>
                   <Text style={styles.retryText}>Try again</Text>
                 </Pressable>
               </>
@@ -241,7 +248,7 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
               </Text>
             )}
 
-            {selected && <SelectedClinic clinic={selected.clinic} km={selected.km} from={originLabel} />}
+            {selected && <SelectedClinic clinic={selected.clinic} km={selected.km} from={originLabel} origin={origin} />}
 
             <Text style={styles.listTitle}>{origin ? 'Nearest clinics' : 'All clinics'}</Text>
             {clinics.map(item => {
@@ -271,11 +278,11 @@ export default function ClinicsSheet({visible, onSelect, onClose}) {
                     {km !== undefined && <Text style={styles.km}>{formatKm(km)}</Text>}
                     <Pressable
                       style={styles.mapBtn}
-                      onPress={() => openLink(pinUrl(clinic))}
+                      onPress={() => openLink(directionsUrl(clinic, origin))}
                       hitSlop={8}
                       accessibilityRole="button"
-                      accessibilityLabel={`Open ${clinic.name} on the map`}>
-                      <Icon name="map-search-outline" size={20} color={colors.primaryDark} />
+                      accessibilityLabel={`Directions to ${clinic.name}`}>
+                      <Icon name="directions" size={20} color={colors.primaryDark} />
                     </Pressable>
                   </View>
                 </Pressable>

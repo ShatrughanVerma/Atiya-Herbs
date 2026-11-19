@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     height: 34,
     borderRadius: 8,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

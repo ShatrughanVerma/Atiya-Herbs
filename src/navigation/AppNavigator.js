@@ -34,7 +34,6 @@ import DoctorTabs from '../doctor/DoctorTabs';
 import DaysTimesScreen from '../doctor/DaysTimesScreen';
 import MyVideosScreen from '../doctor/MyVideosScreen';
 import {useAuth} from '../context/AuthContext';
-import {useCart} from '../context/CartContext';
 import {floatingTabOptions} from './floatingTabBar';
 
 const Stack = createNativeStackNavigator();
@@ -46,8 +45,8 @@ function TabIcon({route, focused, color, size}) {
     source = require('../assets/icons/home.png');
   } else if (route.name === 'Reels' || route.name === 'Reel') {
     source = require('../assets/icons/reel.png');
-  } else if (route.name === 'Explore') {
-    source = require('../assets/icons/explore.png');
+  } else if (route.name === 'Categories') {
+    return <Icon name={focused ? 'view-grid' : 'view-grid-outline'} size={size} color={color} />;
   } else if (route.name === 'Clinic') {
     source = require('../assets/icons/location.png');
   } else if (route.name === 'Cart') {
@@ -75,7 +74,6 @@ const renderTabBarIcon = route => ({focused, color, size}) => (
 );
 
 function Tabs() {
-  const {count} = useCart();
   // Leave room for the phone's own navigation bar (buttons or gesture bar)
   const {bottom} = useSafeAreaInsets();
   return (
@@ -86,12 +84,13 @@ function Tabs() {
       })}>
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Reels" component={ReelsScreen} options={{title: 'Reel'}} />
-      <Tab.Screen name="Explore" component={ExploreScreen} />
+      <Tab.Screen name="Categories" component={ExploreScreen} />
       <Tab.Screen name="Clinic" component={DoctorListScreen} options={{title: 'Clinics'}} />
       <Tab.Screen
         name="Cart"
         component={CartScreen}
-        options={{tabBarBadge: count > 0 ? count : undefined}}
+        // Not shown in the bottom bar; still reachable from the header cart button, product page, profile and home
+        options={{tabBarButton: () => null, tabBarItemStyle: {display: 'none'}}}
       />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>

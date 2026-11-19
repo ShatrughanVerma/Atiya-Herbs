@@ -239,9 +239,9 @@ export default function ProductDetailScreen({navigation, route}) {
                 <QuantityStepper qty={qty} onChange={n => setQty(product.id, n)} />
               </View>
             ) : (
-              <Pressable style={[styles.bigBtn, styles.outlineBtn]} onPress={() => addToCart(product.id)}>
-                <Icon name="cart-plus" size={20} color={colors.accent} />
-                <Text style={[styles.bigBtnText, styles.outlineBtnText]}>Add to Cart</Text>
+              <Pressable style={[styles.bigBtn, styles.cartBtn]} onPress={() => addToCart(product.id)}>
+                <Icon name="cart-plus" size={20} color="#fff" />
+                <Text style={[styles.bigBtnText, styles.cartBtnText]}>Add to Cart</Text>
               </Pressable>
             )}
             <Pressable style={[styles.bigBtn, styles.buyBtn]} onPress={buyNow}>
@@ -400,8 +400,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexDirection: 'row',
   },
-  outlineBtn: {borderWidth: 1.5, borderColor: colors.accent, marginRight: 10},
-  outlineBtnText: {color: colors.accent, marginLeft: 6},
+  cartBtn: {backgroundColor: colors.primary, marginRight: 10}, // Add to Cart: green
+  cartBtnText: {marginLeft: 6},
   buyBtn: {backgroundColor: colors.accent},
   bigBtnText: {color: '#fff', fontWeight: '800', fontSize: 16},
   bigBtnDisabled: {backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border},

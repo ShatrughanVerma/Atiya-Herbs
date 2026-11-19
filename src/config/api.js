@@ -17,3 +17,9 @@ const onEmulator = /sdk|emulator|generic|goldfish|ranchu/i.test(
 export const API_BASE_URL =
   __DEV__ && onEmulator ? 'http://10.0.2.2:4100/api/v1' : PRODUCTION_API_URL;
 export const API_TIMEOUT_MS = 15000;
+
+// Google Maps key for clinic distances that match what Google Maps shows (Distance Matrix API).
+// Leave it empty to use the free routing server instead (close to Google, usually a few percent lower).
+// Make the key in Google Cloud, enable "Distance Matrix API", and RESTRICT it (Android app com.atiyaherbs with the
+// app's SHA-1, and only that API): a key inside an app can be read by anyone who unpacks the APK.
+export const GOOGLE_MAPS_API_KEY = '';
