@@ -1,4 +1,5 @@
 import React from 'react';
+import useRefresh from '../utils/useRefresh';
 import {Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -51,7 +52,9 @@ function MenuSection({title, items}) {
 }
 
 export default function ProfileScreen({navigation}) {
-  const {ordersTotal, wishlist, count} = useCart();
+  const {ordersTotal, wishlist, count, loggedIn, refreshCart, refreshOrders} = useCart();
+  // Pull down to load the cart and the order count again
+  const pull = useRefresh(() => (loggedIn ? Promise.all([refreshCart(), refreshOrders()]) : null));
   const {user, signIn, signOut, deleteAccount} = useAuth();
 
   // "Delete my account" (an app-store rule): the backend removes the data, then the phone forgets the login
@@ -146,7 +149,7 @@ export default function ProfileScreen({navigation}) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={pull.control}>
         {/* Greeting card */}
         <View style={styles.hero}>
           <Icon name="leaf" size={120} color="rgba(255,255,255,0.07)" style={styles.heroLeaf} />

@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import useRefresh from '../../utils/useRefresh';
 import {
   Dimensions,
   Pressable,
@@ -38,7 +39,8 @@ function Section({title, children, initiallyOpen = false}) {
 }
 
 export default function ProductDetailScreen({navigation, route}) {
-  const {ready, products: PRODUCTS, getProduct} = useCatalog();
+  const {ready, products: PRODUCTS, getProduct, retry} = useCatalog();
+  const pull = useRefresh(retry);
   const product = getProduct(route.params.id);
   const {getQty, setQty, addToCart, isWishlisted, toggleWishlist, count} = useCart();
   const [pincode, setPincode] = useState('');
@@ -78,7 +80,7 @@ export default function ProductDetailScreen({navigation, route}) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll} refreshControl={pull.control}>
         <View>
           <ProductImage uri={product.image} style={styles.hero} iconSize={80} />
           <View style={styles.topBar}>

@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
+import useRefresh from '../../utils/useRefresh';
 import {ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -28,6 +29,11 @@ export default function DoctorDetailScreen({navigation, route}) {
     load();
   }, [load]);
 
+  // Pull down: fetch again without replacing the page with a spinner
+  const pull = useRefresh(async () => {
+    setDoctor(await fetchDoctor(id));
+  });
+
   if (status !== 'ready') {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -51,7 +57,7 @@ export default function DoctorDetailScreen({navigation, route}) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScreenHeader title="Doctor" navigation={navigation} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} refreshControl={pull.control}>
         <View style={styles.hero}>
           <DoctorAvatar doctor={doctor} size={88} />
           <Text style={styles.name}>{doctor.name}</Text>

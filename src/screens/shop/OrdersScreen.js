@@ -1,4 +1,5 @@
 import React, {useEffect} from 'react';
+import useRefresh from '../../utils/useRefresh';
 import {ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -46,6 +47,7 @@ export default function OrdersScreen({navigation}) {
       refreshOrders();
     }
   }, [loggedIn, refreshOrders]);
+  const pull = useRefresh(() => (loggedIn ? refreshOrders() : null));
 
   const onCancel = order =>
     Alert.alert('Cancel order', `Cancel order #${order.orderNumber}?`, [
@@ -112,6 +114,8 @@ export default function OrdersScreen({navigation}) {
         data={orders}
         keyExtractor={o => o.id}
         contentContainerStyle={styles.list}
+        refreshing={pull.refreshing}
+        onRefresh={pull.onRefresh}
         ListEmptyComponent={
           <EmptyState
             icon="package-variant"

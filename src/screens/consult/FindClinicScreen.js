@@ -1,4 +1,5 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import useRefresh from '../../utils/useRefresh';
 import {ActivityIndicator, FlatList, Linking, Pressable, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -18,7 +19,9 @@ export default function FindClinicScreen({navigation}) {
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
 
+  const lastPosition = useRef(undefined);
   const load = useCallback(async position => {
+    lastPosition.current = position;
     setStatus('loading');
     try {
       setClinics(await fetchClinics(position ?? {}));
@@ -31,6 +34,11 @@ export default function FindClinicScreen({navigation}) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Pull down: fetch again (same place as before) without replacing the list with a spinner
+  const pull = useRefresh(async () => {
+    setClinics(await fetchClinics(lastPosition.current ?? {}));
+  });
 
   const useMyLocation = async () => {
     setLocating(true);
@@ -69,6 +77,8 @@ export default function FindClinicScreen({navigation}) {
           data={clinics}
           keyExtractor={c => c.id}
           contentContainerStyle={styles.list}
+          refreshing={pull.refreshing}
+          onRefresh={pull.onRefresh}
           renderItem={({item: clinic, index}) => (
             <View style={styles.card}>
               <View style={styles.head}>

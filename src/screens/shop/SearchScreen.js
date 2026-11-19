@@ -1,4 +1,5 @@
 import React, {useMemo, useState} from 'react';
+import useRefresh from '../../utils/useRefresh';
 import {Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -32,6 +33,7 @@ export default function SearchScreen({navigation, route}) {
   const q = query.trim();
   const catalog = useCatalog();
   const {ready, products: PRODUCTS, concerns: CONCERNS} = catalog;
+  const pull = useRefresh(catalog.retry);
   const results = useMemo(
     () => (q && ready ? PRODUCTS.filter(p => matches(p, q, catalog)) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -113,6 +115,8 @@ export default function SearchScreen({navigation, route}) {
         <FlatList
           data={results}
           keyExtractor={item => item.id}
+          refreshing={pull.refreshing}
+          onRefresh={pull.onRefresh}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.list}
           ListHeaderComponent={

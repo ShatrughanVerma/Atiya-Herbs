@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
+import useRefresh from '../utils/useRefresh';
 import {ActivityIndicator, FlatList, Linking, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -34,6 +35,7 @@ export default function DoctorPatientsScreen({navigation}) {
     load();
     return navigation.addListener('focus', load);
   }, [load, navigation]);
+  const pull = useRefresh(load);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -53,8 +55,8 @@ export default function DoctorPatientsScreen({navigation}) {
           data={items}
           keyExtractor={p => `${p.mobile}|${p.name}`}
           contentContainerStyle={styles.list}
-          refreshing={false}
-          onRefresh={load}
+          refreshing={pull.refreshing}
+          onRefresh={pull.onRefresh}
           ListEmptyComponent={<EmptyState icon="account-multiple-outline" title="No patients yet" note="People who book you appear here." />}
           renderItem={({item: p}) => (
             <View style={styles.row}>

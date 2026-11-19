@@ -1,4 +1,5 @@
 import React, {useEffect, useState} from 'react';
+import useRefresh from '../utils/useRefresh';
 import {Alert, Image, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -16,6 +17,13 @@ export default function DoctorAccountScreen({navigation}) {
       .then(setMe)
       .catch(() => setMe(null)); // the account details below still show
   }, []);
+  const pull = useRefresh(async () => {
+    try {
+      setMe(await fetchDoctorMe());
+    } catch {
+      // keep the details already shown
+    }
+  });
 
   const logOut = () =>
     Alert.alert('Log out', 'Do you want to log out?', [
@@ -40,7 +48,7 @@ export default function DoctorAccountScreen({navigation}) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} refreshControl={pull.control}>
         <Text style={styles.title}>Account</Text>
         <View style={styles.hero}>
           {me?.photoUrl ? (

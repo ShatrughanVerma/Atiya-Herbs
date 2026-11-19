@@ -1,4 +1,5 @@
 import React from 'react';
+import useRefresh from '../../utils/useRefresh';
 import {FlatList, StyleSheet} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import EmptyState from '../../components/shop/EmptyState';
@@ -11,7 +12,8 @@ import {colors, spacing} from '../../theme';
 
 export default function WishlistScreen({navigation}) {
   const {wishlist} = useCart();
-  const {ready, getProduct} = useCatalog();
+  const {ready, getProduct, retry} = useCatalog();
+  const pull = useRefresh(retry);
   const products = wishlist.map(getProduct).filter(Boolean);
 
   if (!ready && wishlist.length > 0) {
@@ -29,6 +31,8 @@ export default function WishlistScreen({navigation}) {
       <FlatList
         data={products}
         keyExtractor={p => p.id}
+        refreshing={pull.refreshing}
+        onRefresh={pull.onRefresh}
         numColumns={2}
         columnWrapperStyle={styles.column}
         contentContainerStyle={styles.list}

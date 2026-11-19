@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
+import useRefresh from '../utils/useRefresh';
 import {ActivityIndicator, Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -50,6 +51,7 @@ export default function MyVideosScreen({navigation}) {
     load();
     return navigation.addListener('focus', load);
   }, [load, navigation]);
+  const pull = useRefresh(load);
 
   // Holding a video for a moment offers to delete it (asks once more before it is gone for good)
   const askDelete = v => {
@@ -112,8 +114,8 @@ export default function MyVideosScreen({navigation}) {
           data={items}
           keyExtractor={v => v.id}
           contentContainerStyle={styles.list}
-          refreshing={false}
-          onRefresh={load}
+          refreshing={pull.refreshing}
+          onRefresh={pull.onRefresh}
           keyboardShouldPersistTaps="handled"
           ListFooterComponent={items.length ? <Text style={styles.hint}>Hold a video for a moment to delete it.</Text> : null}
           ListEmptyComponent={

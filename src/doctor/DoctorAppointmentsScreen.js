@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import useRefresh from '../utils/useRefresh';
 import {ActivityIndicator, Alert, FlatList, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -166,6 +167,7 @@ export default function DoctorAppointmentsScreen({navigation, route}) {
     load();
     return navigation.addListener('focus', load);
   }, [load, navigation]);
+  const pull = useRefresh(load);
 
   const run = async work => {
     setBusy(true);
@@ -216,8 +218,8 @@ export default function DoctorAppointmentsScreen({navigation, route}) {
           data={items}
           keyExtractor={a => a.id}
           contentContainerStyle={styles.list}
-          refreshing={false}
-          onRefresh={load}
+          refreshing={pull.refreshing}
+          onRefresh={pull.onRefresh}
           ListEmptyComponent={<EmptyState icon="calendar-blank-outline" title="Nothing here" note={filter === 'requested' ? 'New requests from patients show up here.' : 'No appointments in this list.'} />}
           renderItem={({item: a}) => {
             const started = a.startsAt && new Date(a.startsAt).getTime() <= Date.now();

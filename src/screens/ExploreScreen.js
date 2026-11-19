@@ -1,5 +1,5 @@
-import React, {useState} from 'react';
-import {Image, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import React, {useCallback, useState} from 'react';
+import {Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import FilterSheet from '../components/shop/FilterSheet';
@@ -9,7 +9,17 @@ import {colors, spacing} from '../theme';
 
 export default function ExploreScreen({navigation}) {
   const [filterOpen, setFilterOpen] = useState(false);
-  const {ready, products: PRODUCTS, categories: CATEGORIES, concerns: CONCERNS} = useCatalog();
+  const {ready, products: PRODUCTS, categories: CATEGORIES, concerns: CONCERNS, retry} = useCatalog();
+  // Pull down to load the shop again
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await retry();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [retry]);
 
   if (!ready) {
     return (
@@ -23,7 +33,12 @@ export default function ExploreScreen({navigation}) {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <OfflineBanner />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} tintColor={colors.primary} />
+        }>
         <Text style={styles.title}>Categories</Text>
 
         <View style={styles.searchRow}>

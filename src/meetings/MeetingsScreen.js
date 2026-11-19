@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import useRefresh from '../utils/useRefresh';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -49,6 +50,7 @@ export default function MeetingsScreen({ navigation }) {
       refresh();
     }
   }, [myId, serverConnected, status, refresh]);
+  const pull = useRefresh(refresh);
 
   if (!user || !myId) {
     return (
@@ -76,6 +78,8 @@ export default function MeetingsScreen({ navigation }) {
           data={recent}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
+          refreshing={pull.refreshing}
+          onRefresh={pull.onRefresh}
           keyboardShouldPersistTaps="handled"
           ListHeaderComponent={
             <View>

@@ -1,4 +1,5 @@
 import React, {useMemo, useState} from 'react';
+import useRefresh from '../../utils/useRefresh';
 import {FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import ProductCard from '../../components/shop/ProductCard';
@@ -20,7 +21,8 @@ export default function ProductListScreen({navigation, route}) {
   const {title = 'All Products', category, concern, bestseller} = route.params || {};
   const [filters, setFilters] = useState(route.params?.filters || DEFAULT_FILTERS);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const {ready, products: PRODUCTS} = useCatalog();
+  const {ready, products: PRODUCTS, retry} = useCatalog();
+  const pull = useRefresh(retry);
 
   // The page's own category/concern/best-seller scope; the sheet filters within it
   const baseProducts = useMemo(
@@ -78,6 +80,8 @@ export default function ProductListScreen({navigation, route}) {
       <FlatList
         data={products}
         keyExtractor={item => item.id}
+        refreshing={pull.refreshing}
+        onRefresh={pull.onRefresh}
         numColumns={2}
         columnWrapperStyle={styles.column}
         contentContainerStyle={styles.list}

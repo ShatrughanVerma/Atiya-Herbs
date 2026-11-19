@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import useRefresh from '../utils/useRefresh';
 import {ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -50,10 +51,12 @@ export function BillDetails({mrpTotal, subtotal, couponDiscount, coupon, total})
 export default function CartScreen({navigation}) {
   const cart = useCart();
   const {lines, count, coupon, total, setQty, toggleWishlist, isWishlisted, applyCoupon, removeCoupon, loggedIn, cartLoading, cartError, refreshCart, hasBlocking} = cart;
-  const {ready} = useCatalog();
+  const {ready, retry} = useCatalog();
   const [code, setCode] = useState('');
   const [couponError, setCouponError] = useState('');
   const [applying, setApplying] = useState(false);
+  // Pull down to load the prices and the cart again
+  const pull = useRefresh(() => Promise.all([retry(), loggedIn ? refreshCart() : null]));
 
   const onApply = async () => {
     if (!code.trim() || applying) {
@@ -127,7 +130,7 @@ export default function CartScreen({navigation}) {
         My Cart <Text style={styles.screenCount}>({count} items)</Text>
       </Text>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} refreshControl={pull.control}>
         <View style={styles.freeStrip}>
           <Icon name="truck-fast-outline" size={18} color={colors.primary} />
           <Text style={styles.freeText}>Yay! You get FREE delivery on this order</Text>
