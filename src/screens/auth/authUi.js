@@ -284,20 +284,21 @@ export function SocialButtons({ navigation, verb }) {
               {pending?.name ? `Hi ${pending.name}! ` : ''}
               Add your mobile number to finish creating your account with {pending?.email}.
             </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="10-digit mobile number"
-              placeholderTextColor={PLACEHOLDER}
-              keyboardType="number-pad"
-              maxLength={13}
-              value={mobile}
-              onChangeText={text => {
-                setMobile(text);
-                setMobileError('');
-              }}
-              autoFocus
-            />
-            {mobileError ? <Text style={styles.modalError}>{mobileError}</Text> : null}
+            <Field error={mobileError}>
+              <TextInput
+                style={styles.input}
+                placeholder="10-digit mobile number"
+                placeholderTextColor={PLACEHOLDER}
+                keyboardType="number-pad"
+                maxLength={13}
+                value={mobile}
+                onChangeText={text => {
+                  setMobile(text);
+                  setMobileError('');
+                }}
+                autoFocus
+              />
+            </Field>
             <Pressable
               style={({ pressed }) => [styles.modalPrimary, pressed && styles.pressed]}
               onPress={onSaveMobile}
@@ -528,7 +529,6 @@ export const styles = StyleSheet.create({
   modalCard: { backgroundColor: '#fff', borderRadius: 16, padding: 20 },
   modalTitle: { fontFamily: 'Poppins-SemiBold', fontSize: 18, color: '#111', marginBottom: 6 },
   modalText: { fontFamily: 'Poppins-Regular', fontSize: 13.5, color: GREY, marginBottom: 14 },
-  modalError: { fontFamily: 'Poppins-Regular', fontSize: 12.5, color: '#B3261E', marginTop: 6 },
   modalPrimary: {
     minHeight: 44,
     borderRadius: 22,

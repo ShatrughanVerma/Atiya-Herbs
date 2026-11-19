@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
   Image,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -77,9 +78,19 @@ const isFullBanner = image => {
 };
 
 export default function HomeScreen({ navigation }) {
-  const { count } = useCart();
+  const { count, refreshCart, loggedIn } = useCart();
   // Everything about products comes from the server (or its saved copy); nothing is made up here
-  const { ready, products, banners, categories, concerns } = useCatalog();
+  const { ready, products, banners, categories, concerns, retry } = useCatalog();
+  // Pull down to load the shop (and the cart of a logged-in person) again
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([retry(), loggedIn ? refreshCart() : null]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [retry, refreshCart, loggedIn]);
   const CAROUSEL_ITEMS = banners;
   const BEST_SELLER_TABS = [
     { id: 'all', name: 'Best Sellers' },
@@ -193,6 +204,14 @@ export default function HomeScreen({ navigation }) {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
       >
         {/* Search Bar */}
         <View style={styles.searchRow}>
