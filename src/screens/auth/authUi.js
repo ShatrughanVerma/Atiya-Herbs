@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StatusBar,
@@ -14,6 +15,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useAuth } from '../../context/AuthContext';
+import { loginWithGoogle } from '../../services/authApi';
+import { startSession } from '../../services/session';
 import { colors, spacing } from '../../theme';
 import {
   isGoogleSignInConfigured,
@@ -188,8 +191,18 @@ export function PasswordField({
 
 // Apple, Google and "Continue as guest". `verb` is "Log in" or "Continue".
 export function SocialButtons({ navigation, verb }) {
-  const { signIn } = useAuth();
+  const { completeLogin } = useAuth();
   const [googleLoading, setGoogleLoading] = useState(false);
+  // A new person: Google proved the email, the mobile number is still needed to make the account
+  const [pending, setPending] = useState(null); // {idToken, name, email}
+  const [mobile, setMobile] = useState('');
+  const [mobileError, setMobileError] = useState('');
+
+  const openMain = async session => {
+    await startSession(session); // the tokens go to the Keystore
+    completeLogin(session.user);
+    navigation.replace('Main');
+  };
 
   const onApple = () => {
     // TODO: add Apple sign-in (@invertase/react-native-apple-authentication)
@@ -211,9 +224,21 @@ export function SocialButtons({ navigation, verb }) {
     try {
       const result = await signInWithGoogle();
       if (result) {
-        // TODO: send result.idToken to the backend to find the customer account
-        signIn(result.user);
-        navigation.replace('Main');
+        const answer = await loginWithGoogle({ idToken: result.idToken });
+        if (answer.needsMobile) {
+          if (answer.otpRequired) {
+            Alert.alert(
+              'Google sign-up',
+              'Please sign up with your mobile number and a password for now.',
+            );
+            return;
+          }
+          setMobile('');
+          setMobileError('');
+          setPending({ idToken: result.idToken, name: answer.name, email: answer.email });
+        } else {
+          await openMain(answer);
+        }
       }
     } catch (e) {
       Alert.alert('Google sign-in', e.message);
@@ -222,8 +247,76 @@ export function SocialButtons({ navigation, verb }) {
     }
   };
 
+  const onSaveMobile = async () => {
+    const digits = mobile.replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '');
+    if (!/^[6-9]\d{9}$/.test(digits)) {
+      setMobileError('Enter a valid 10-digit mobile number.');
+      return;
+    }
+    setMobileError('');
+    setGoogleLoading(true);
+    try {
+      const session = await loginWithGoogle({ idToken: pending.idToken, mobile: digits });
+      setPending(null);
+      await openMain(session);
+    } catch (e) {
+      if (e.kind === 'unauthorized') {
+        setPending(null); // the Google proof is too old: start again
+      }
+      setMobileError(e.message || 'Could not create your account. Please try again.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   return (
     <>
+      <Modal
+        visible={pending !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPending(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>One last step</Text>
+            <Text style={styles.modalText}>
+              {pending?.name ? `Hi ${pending.name}! ` : ''}
+              Add your mobile number to finish creating your account with {pending?.email}.
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="10-digit mobile number"
+              placeholderTextColor={PLACEHOLDER}
+              keyboardType="number-pad"
+              maxLength={13}
+              value={mobile}
+              onChangeText={text => {
+                setMobile(text);
+                setMobileError('');
+              }}
+              autoFocus
+            />
+            {mobileError ? <Text style={styles.modalError}>{mobileError}</Text> : null}
+            <Pressable
+              style={({ pressed }) => [styles.modalPrimary, pressed && styles.pressed]}
+              onPress={onSaveMobile}
+              disabled={googleLoading}
+              accessibilityRole="button"
+            >
+              {googleLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.modalPrimaryText}>Continue</Text>
+              )}
+            </Pressable>
+            <Pressable style={styles.modalCancel} onPress={() => setPending(null)} hitSlop={8}>
+              <Text style={styles.guestText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <View style={styles.orRow}>
         <View style={styles.orLine} />
         <Text style={styles.orText}>or</Text>
@@ -426,6 +519,26 @@ export const styles = StyleSheet.create({
   socialIcon: { marginRight: 12 },
   appleText: { fontFamily: 'Poppins-Medium', fontSize: 14.5, color: '#fff' },
   googleIcon: { width: 18, height: 18, marginRight: 12 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: { backgroundColor: '#fff', borderRadius: 16, padding: 20 },
+  modalTitle: { fontFamily: 'Poppins-SemiBold', fontSize: 18, color: '#111', marginBottom: 6 },
+  modalText: { fontFamily: 'Poppins-Regular', fontSize: 13.5, color: GREY, marginBottom: 14 },
+  modalError: { fontFamily: 'Poppins-Regular', fontSize: 12.5, color: '#B3261E', marginTop: 6 },
+  modalPrimary: {
+    minHeight: 44,
+    borderRadius: 22,
+    backgroundColor: GREEN,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+  },
+  modalPrimaryText: { fontFamily: 'Poppins-SemiBold', fontSize: 15, color: '#fff' },
+  modalCancel: { alignSelf: 'center', marginTop: 10, paddingVertical: 6 },
   googleText: { fontFamily: 'Poppins-SemiBold', fontSize: 14.5, color: '#111' },
   guestLink: { alignSelf: 'center', marginTop: 10, paddingVertical: 6 },
   guestText: {

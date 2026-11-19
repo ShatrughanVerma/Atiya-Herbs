@@ -3,6 +3,7 @@ const {createApp} = require('../../src/app');
 const {loadConfig} = require('../../src/config/env');
 const {createFakePrisma} = require('./fakePrisma');
 const {ROLE_IDS} = require('../../src/auth/roles');
+const {unauthorized} = require('../../src/common/errors');
 
 const silent = {info() {}, warn() {}, error() {}};
 
@@ -16,6 +17,19 @@ const BASE_ENV = {
   RATE_LIMIT_MAX: '1000', // the tests send many requests; the rate-limit tests lower this on purpose
 };
 
+// Stands in for Google: the "ID token" is `good:<email>|<name>` (or `unverified:<email>`), anything else is refused.
+const fakeGoogle = config => ({
+  available: config.googleClientIds.length > 0,
+  async verify(idToken) {
+    const [kind, rest = ''] = idToken.split(':');
+    const [email, name = ''] = rest.split('|');
+    if (kind === 'good') {
+      return {email: email.toLowerCase(), name, googleId: `g-${email}`};
+    }
+    throw unauthorized(kind === 'unverified' ? 'Your Google email is not verified.' : 'Google sign-in failed. Please try again.');
+  },
+});
+
 // A complete API wired to an in-memory database. `sent` collects every OTP "SMS" the API tried to send.
 function buildTestApp(envOverrides = {}, {prisma = createFakePrisma(), logger = silent} = {}) {
   const config = loadConfig({...BASE_ENV, ...envOverrides});
@@ -25,7 +39,7 @@ function buildTestApp(envOverrides = {}, {prisma = createFakePrisma(), logger = 
       sent.push({mobile, code});
     },
   };
-  const app = createApp({config, prisma, sender, logger});
+  const app = createApp({config, prisma, sender, logger, google: fakeGoogle(config)});
   const lastCode = () => sent[sent.length - 1]?.code;
 
   // Full login: asks for a code, then verifies it. Returns the session (tokens + user).

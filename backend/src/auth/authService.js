@@ -1,6 +1,6 @@
 const {randomUUID} = require('node:crypto');
 const {newOpaqueToken, sha256Hex} = require('../common/crypto');
-const {badRequest, conflict, forbidden, tooManyRequests, unauthorized} = require('../common/errors');
+const {badRequest, conflict, forbidden, tooManyRequests, unauthorized, unavailable} = require('../common/errors');
 const {maskMobile, normalizeMobile} = require('../common/mobile');
 const {hashPassword, passwordProblem, verifyAgainstDummy, verifyPassword} = require('./passwordService');
 const {roleNameOf} = require('./roles');
@@ -32,7 +32,7 @@ const secondsLeft = user => (user.lockedUntil.getTime() - Date.now()) / 1000;
 const toPublicUser = user => ({id: user.id, mobile: user.mobile, name: user.name, email: user.email, roleId: user.roleId, role: roleNameOf(user.roleId)});
 
 // ctx everywhere below is {ip, userAgent}, taken from the request.
-function createAuthService({prisma, otp, tokens, audit, config}) {
+function createAuthService({prisma, otp, tokens, audit, config, google = null}) {
   async function startSession(user, ctx, familyId, deviceName) {
     const refreshToken = newOpaqueToken();
     await prisma.refreshToken.create({
@@ -152,6 +152,57 @@ function createAuthService({prisma, otp, tokens, audit, config}) {
       }
       const session = await startSession(user, ctx, randomUUID(), deviceName);
       await audit.record({action: 'auth.register', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent, metadata: {mobile: maskMobile(mobile)}});
+      return session;
+    },
+
+    // "Continue with Google". Google proves the email; nobody else can have it.
+    //  - An account with that email: log in to it (the first Google login also joins it to Google).
+    //  - No account yet: the mobile number is needed (this app is built around it), so the answer is
+    //    {needsMobile: true, name, email}; the app asks for the number and sends the same token again with it.
+    //    When OTP is on, the number must be proved with the SMS code, as in a normal sign-up.
+    async googleLogin({idToken, mobile, code, deviceName}, ctx) {
+      if (!google?.available) {
+        throw unavailable('Google sign-in is not available right now.');
+      }
+      const profile = await google.verify(idToken);
+
+      const existing = await prisma.user.findFirst({where: {email: profile.email}});
+      if (existing) {
+        if (existing.status !== 'active') {
+          await audit.record({action: 'auth.login.blocked', userId: existing.id, ip: ctx.ip, userAgent: ctx.userAgent});
+          throw forbidden('This account cannot be used. Please contact support.');
+        }
+        const session = await finishLogin(existing, deviceName, ctx);
+        await audit.record({action: 'auth.google_login', userId: existing.id, ip: ctx.ip, userAgent: ctx.userAgent});
+        return session;
+      }
+
+      if (!mobile) {
+        return {needsMobile: true, otpRequired: Boolean(config.OTP_REQUIRED), name: profile.name, email: profile.email};
+      }
+      await assertFree(mobile, profile.email);
+      if (config.OTP_REQUIRED) {
+        if (!code) {
+          throw badRequest('Some details are not valid.', [{field: 'code', message: 'Enter the 6-digit code sent to your mobile number.'}]);
+        }
+        try {
+          await otp.verify(mobile, code);
+        } catch (error) {
+          await audit.record({action: 'auth.otp.failed', ip: ctx.ip, userAgent: ctx.userAgent, metadata: {mobile: maskMobile(mobile)}});
+          throw error;
+        }
+      }
+      let user;
+      try {
+        user = await prisma.user.create({data: {mobile, name: profile.name || null, email: profile.email, lastLoginAt: new Date()}});
+      } catch (error) {
+        if (error.code === 'P2002') {
+          throw conflict('This mobile number or email is already registered. Please log in.');
+        }
+        throw error;
+      }
+      const session = await startSession(user, ctx, randomUUID(), deviceName);
+      await audit.record({action: 'auth.google_signup', userId: user.id, ip: ctx.ip, userAgent: ctx.userAgent, metadata: {mobile: maskMobile(mobile)}});
       return session;
     },
 

@@ -45,7 +45,8 @@ const profileFromServer = (me, previous) => ({
 // Holds the signed-in customer.
 //  - Login is by email or mobile and a password against the backend. The tokens live in the Android Keystore (services/session.js);
 //    only the profile is remembered here (AsyncStorage), so the app opens straight into the account.
-//  - Google sign-in has no backend token yet: it stays a profile on this phone only (provider 'google').
+//  - Google sign-in goes through the backend too (POST /auth/google): the person gets the same tokens and profile as a
+//    password login. (Old phones may still hold a local-only 'google' profile; logging out clears it.)
 export function AuthProvider({children}) {
   const [user, setUser] = useState(null); // {name, email, mobile?, photo?, gender?, role?, provider}
   const [ready, setReady] = useState(false); // false until the saved session has been read

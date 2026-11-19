@@ -31,6 +31,9 @@ const schema = z
     TRUST_PROXY: int(1, 0, 5),
     // Origins allowed to call the API from a browser (e.g. the admin panel). The mobile app needs none.
     CORS_ORIGINS: z.string().optional().default(''),
+    // Google Sign-In: the "Web application" OAuth client ID the app uses (comma separated if there are several).
+    // Empty = "Continue with Google" answers that it is not available.
+    GOOGLE_CLIENT_IDS: z.string().optional().default(''),
     // Doctor photo uploads (Cloudinary signed upload). All three or none.
     // Consultation videos: the folder they are kept in, the biggest file, and how long they are kept (days)
     // Where the video files are kept: inside MySQL (default) or in a folder on the server
@@ -117,6 +120,9 @@ function loadConfig(env = process.env) {
   const config = parsed.data;
   return {
     ...config,
+    googleClientIds: config.GOOGLE_CLIENT_IDS.split(',')
+      .map(id => id.trim())
+      .filter(Boolean),
     corsOrigins: config.CORS_ORIGINS.split(',')
       .map(origin => origin.trim())
       .filter(Boolean),

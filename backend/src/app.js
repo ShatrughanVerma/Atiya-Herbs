@@ -10,6 +10,7 @@ const {createAuditService} = require('./audit/auditService');
 const {createAuthMiddleware} = require('./auth/authMiddleware');
 const {createAuthRoutes} = require('./auth/authRoutes');
 const {createAuthService} = require('./auth/authService');
+const {createGoogleVerifier} = require('./auth/googleVerifier');
 const {createCatalogRoutes} = require('./catalog/catalogRoutes');
 const {createCatalogService} = require('./catalog/catalogService');
 const {createTokenService} = require('./auth/tokenService');
@@ -40,7 +41,7 @@ const {createUsersService} = require('./users/usersService');
 
 // Builds the whole API. Everything it needs (config, database, OTP sender) is passed in, so tests can
 // run it against a fake database without any network or MySQL server.
-function createApp({config, prisma, sender, logger = console}) {
+function createApp({config, prisma, sender, logger = console, google = createGoogleVerifier({config})}) {
   const app = express();
   app.disable('x-powered-by');
   // How many proxies sit in front of the server, so req.ip is the real client and not the proxy
@@ -86,7 +87,7 @@ function createApp({config, prisma, sender, logger = console}) {
   const audit = createAuditService({prisma, logger});
   const tokens = createTokenService(config);
   const otp = createOtpService({prisma, config, sender});
-  const auth = createAuthService({prisma, otp, tokens, audit, config});
+  const auth = createAuthService({prisma, otp, tokens, audit, config, google});
   const users = createUsersService({prisma, audit});
   const {requireAuth, requireRole} = createAuthMiddleware({tokens});
   const catalog = createCatalogService({prisma, audit});

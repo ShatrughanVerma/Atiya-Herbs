@@ -48,6 +48,9 @@ services:
       # The address of the admin panel, e.g. https://admin.atiyaherbs.com (comma separated for more)
       - key: CORS_ORIGINS
         sync: false
+      # The "Web application" OAuth client ID of Google Sign-In (not a secret). Empty = "Continue with Google" is off.
+      - key: GOOGLE_CLIENT_IDS
+        sync: false
   - type: web
     name: atiyaherbs-calls
     runtime: docker

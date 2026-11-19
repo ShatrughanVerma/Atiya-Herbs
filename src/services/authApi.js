@@ -89,6 +89,25 @@ export async function loginWithPassword(identifier, password, deviceName) {
   }
 }
 
+// "Continue with Google": the ID token from Google Sign-In. -> the same session as registerAccount, or for a person
+// without an account yet {needsMobile: true, otpRequired, name, email}: ask for the mobile number and call again
+// with `mobile` (and `code` when otpRequired).
+export async function loginWithGoogle({ idToken, mobile, code, deviceName }) {
+  try {
+    return await request('/auth/google', {
+      method: 'POST',
+      body: {
+        idToken,
+        ...(mobile && { mobile }),
+        ...(code && { code }),
+        ...(deviceName && { deviceName }),
+      },
+    });
+  } catch (error) {
+    throw waitMessage(error);
+  }
+}
+
 // Ends this login on the server. Best effort: the phone forgets the tokens either way.
 export async function logoutRemote() {
   const refreshToken = getRefreshToken();

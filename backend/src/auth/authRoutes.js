@@ -1,7 +1,7 @@
 const express = require('express');
 const {validateBody} = require('../common/validate');
 const {createLimiter} = require('../common/rateLimit');
-const {loginSchema, loginVerifySchema, refreshSchema, registerSchema, requestOtpSchema, signupOtpSchema, verifyOtpSchema} = require('./schemas');
+const {googleLoginSchema, loginSchema, loginVerifySchema, refreshSchema, registerSchema, requestOtpSchema, signupOtpSchema, verifyOtpSchema} = require('./schemas');
 
 const contextOf = req => ({ip: req.ip ?? null, userAgent: req.headers['user-agent'] ?? null});
 
@@ -26,6 +26,11 @@ function createAuthRoutes({auth}) {
 
   router.post('/register/otp', createLimiter({limit: 5, windowSeconds: 600}), validateBody(signupOtpSchema), async (req, res) => {
     res.status(200).json(await auth.requestSignupOtp(req.body, contextOf(req)));
+  });
+
+  // Sign up or log in with Google: the app sends Google's ID token
+  router.post('/google', createLimiter({limit: 15, windowSeconds: 300}), validateBody(googleLoginSchema), async (req, res) => {
+    res.status(200).json(await auth.googleLogin(req.body, contextOf(req)));
   });
 
   router.post('/login/verify', createLimiter({limit: 15, windowSeconds: 300}), validateBody(loginVerifySchema), async (req, res) => {

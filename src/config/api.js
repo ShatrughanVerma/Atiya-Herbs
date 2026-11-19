@@ -2,9 +2,9 @@ import {Platform} from 'react-native';
 
 // Address of the Atiya Herbs API (the backend/ folder): login with a password, profile, shop, orders.
 //
-// TODO (before the Play Store release): replace PRODUCTION_API_URL with the real https:// address of the
-// deployed backend. Android blocks plain http outside the localhost exceptions in network_security_config.xml.
-const PRODUCTION_API_URL = 'http://localhost:4100/api/v1';
+// PRODUCTION_API_URL is the deployed backend on Render (https, so Android allows it). Phones and release builds use it,
+// no USB cable needed. The free Render plan sleeps when idle, so the first request after a pause can take about a minute.
+const PRODUCTION_API_URL = 'https://atiya-herbs.onrender.com/api/v1';
 
 // On the Android emulator the PC is 10.0.2.2. A real phone reaches the PC's backend through USB with
 //   adb reverse tcp:4100 tcp:4100
