@@ -63,6 +63,12 @@ const QUICK_ACTIONS = [
     route: 'Categories',
   },
   {
+    id: '5',
+    title: 'Health Wellness',
+    iconName: 'heart-pulse',
+    route: 'Wellness',
+  },
+  {
     id: '4',
     title: 'Ask Expert',
     icon: require('../assets/icons/ask_expert.png'),
@@ -347,6 +353,8 @@ export default function HomeScreen({ navigation }) {
                   navigation.navigate('Categories');
                 } else if (action.route === 'Calls') {
                   navigation.navigate('Calls');
+                } else if (action.route === 'Wellness') {
+                  navigation.navigate('Wellness');
                 } else {
                   Alert.alert(
                     action.title,
@@ -356,16 +364,20 @@ export default function HomeScreen({ navigation }) {
               }}
             >
               <View style={styles.quickActionIconContainer}>
-                <Image
-                  source={action.icon}
-                  style={[
-                    styles.quickActionIcon,
-                    { tintColor: colors.primary },
-                  ]}
-                  resizeMode="contain"
-                />
+                {action.iconName ? (
+                  <Icon name={action.iconName} size={26} color={colors.primary} />
+                ) : (
+                  <Image
+                    source={action.icon}
+                    style={[
+                      styles.quickActionIcon,
+                      { tintColor: colors.primary },
+                    ]}
+                    resizeMode="contain"
+                  />
+                )}
               </View>
-              <Text style={styles.quickActionText} numberOfLines={1}>
+              <Text style={styles.quickActionText} numberOfLines={2}>
                 {action.title}
               </Text>
             </Pressable>

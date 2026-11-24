@@ -109,6 +109,8 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        // Only English and Hindi strings of the libraries go into the APK (not the 80+ other languages)
+        resConfigs "en", "hi"
     }
     signingConfigs {
         debug {

@@ -48,6 +48,11 @@ function createUsersService({prisma, audit}) {
         await tx.refreshToken.deleteMany({where: {userId: id}});
         await tx.cartItem.deleteMany({where: {userId: id}});
         await tx.address.deleteMany({where: {userId: id}});
+        await tx.wellnessDay.deleteMany({where: {userId: id}});
+        await tx.wellnessWalk.deleteMany({where: {userId: id}});
+        await tx.wellnessPoint.deleteMany({where: {userId: id}});
+        await tx.wellnessStepBatch.deleteMany({where: {userId: id}});
+        await tx.wellnessSettings.deleteMany({where: {userId: id}});
         await tx.order.updateMany({where: {userId: id}, data: {userId: null, shippingAddress: {removed: true}}});
         await tx.meetingMessage.deleteMany({where: {OR: [{fromMobile: user.mobile}, {toMobile: user.mobile}]}});
         await tx.callLog.updateMany({where: {callerMobile: user.mobile}, data: {callerMobile: 'deleted'}});

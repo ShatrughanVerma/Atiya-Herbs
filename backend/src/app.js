@@ -37,11 +37,15 @@ const {createUploads} = require('./admin/uploads');
 const {createConsultationService} = require('./consultation/consultationService');
 const {createOtpService} = require('./otp/otpService');
 const {createUsersRoutes} = require('./users/usersRoutes');
+const {createRedisClient} = require('./wellness/redisClient');
+const {createStepWindow} = require('./wellness/stepWindow');
+const {createWellnessRoutes} = require('./wellness/wellnessRoutes');
+const {createWellnessService} = require('./wellness/wellnessService');
 const {createUsersService} = require('./users/usersService');
 
 // Builds the whole API. Everything it needs (config, database, OTP sender) is passed in, so tests can
 // run it against a fake database without any network or MySQL server.
-function createApp({config, prisma, sender, logger = console, google = createGoogleVerifier({config})}) {
+function createApp({config, prisma, sender, logger = console, google = createGoogleVerifier({config}), redis = createRedisClient(config, logger)}) {
   const app = express();
   app.disable('x-powered-by');
   // How many proxies sit in front of the server, so req.ip is the real client and not the proxy
@@ -89,6 +93,7 @@ function createApp({config, prisma, sender, logger = console, google = createGoo
   const otp = createOtpService({prisma, config, sender});
   const auth = createAuthService({prisma, otp, tokens, audit, config, google});
   const users = createUsersService({prisma, audit});
+  const wellness = createWellnessService({prisma, stepWindow: createStepWindow({redis, logger})});
   const {requireAuth, requireRole} = createAuthMiddleware({tokens});
   const catalog = createCatalogService({prisma, audit});
   const addresses = createAddressesService({prisma});
@@ -110,6 +115,7 @@ function createApp({config, prisma, sender, logger = console, google = createGoo
   app.use('/api/v1/auth', createAuthRoutes({auth}));
   app.use('/api/v1/users', createUsersRoutes({users, auth, requireAuth}));
   app.use('/api/v1/addresses', createAddressesRoutes({addresses, requireAuth}));
+  app.use('/api/v1/wellness', createWellnessRoutes({wellness, requireAuth}));
   app.use('/api/v1/cart', createCartRoutes({cart, requireAuth}));
   app.use('/api/v1/history', createHistoryRoutes({history, requireAuth}));
   // The shop and orders have their own paths (/products, /orders, /admin/...), so they are mounted at the root

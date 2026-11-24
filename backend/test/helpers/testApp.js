@@ -2,6 +2,7 @@ const request = require('supertest');
 const {createApp} = require('../../src/app');
 const {loadConfig} = require('../../src/config/env');
 const {createFakePrisma} = require('./fakePrisma');
+const {createFakeRedis} = require('./fakeRedis');
 const {ROLE_IDS} = require('../../src/auth/roles');
 const {unauthorized} = require('../../src/common/errors');
 
@@ -31,7 +32,7 @@ const fakeGoogle = config => ({
 });
 
 // A complete API wired to an in-memory database. `sent` collects every OTP "SMS" the API tried to send.
-function buildTestApp(envOverrides = {}, {prisma = createFakePrisma(), logger = silent} = {}) {
+function buildTestApp(envOverrides = {}, {prisma = createFakePrisma(), logger = silent, redis = createFakeRedis()} = {}) {
   const config = loadConfig({...BASE_ENV, ...envOverrides});
   const sent = [];
   const sender = {
@@ -39,7 +40,7 @@ function buildTestApp(envOverrides = {}, {prisma = createFakePrisma(), logger = 
       sent.push({mobile, code});
     },
   };
-  const app = createApp({config, prisma, sender, logger, google: fakeGoogle(config)});
+  const app = createApp({config, prisma, sender, logger, google: fakeGoogle(config), redis});
   const lastCode = () => sent[sent.length - 1]?.code;
 
   // Full login: asks for a code, then verifies it. Returns the session (tokens + user).
@@ -58,7 +59,7 @@ function buildTestApp(envOverrides = {}, {prisma = createFakePrisma(), logger = 
   };
   const bearer = session => ({Authorization: `Bearer ${session.accessToken}`});
 
-  return {app, prisma, config, sent, lastCode, login, loginAs, bearer};
+  return {app, prisma, redis, config, sent, lastCode, login, loginAs, bearer};
 }
 
 module.exports = {buildTestApp, BASE_ENV, silent};

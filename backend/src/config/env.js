@@ -34,6 +34,8 @@ const schema = z
     // Google Sign-In: the "Web application" OAuth client ID the app uses (comma separated if there are several).
     // Empty = "Continue with Google" answers that it is not available.
     GOOGLE_CLIENT_IDS: z.string().optional().default(''),
+    // Redis for the "last 10 minutes of steps" (redis://host:6379, or rediss://... for a hosted Redis). Empty = switched off.
+    REDIS_URL: z.string().optional().default(''),
     // Doctor photo uploads (Cloudinary signed upload). All three or none.
     // Consultation videos: the folder they are kept in, the biggest file, and how long they are kept (days)
     // Where the video files are kept: inside MySQL (default) or in a folder on the server

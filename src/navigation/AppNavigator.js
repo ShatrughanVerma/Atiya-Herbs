@@ -28,6 +28,7 @@ import CheckoutScreen from '../screens/shop/CheckoutScreen';
 import OrderSuccessScreen from '../screens/shop/OrderSuccessScreen';
 import OrdersScreen from '../screens/shop/OrdersScreen';
 import WishlistScreen from '../screens/shop/WishlistScreen';
+import WellnessNavigator from '../wellness/WellnessNavigator';
 import CallsScreen from '../calling/CallsScreen';
 import MeetingsScreen from '../meetings/MeetingsScreen';
 import DoctorTabs from '../doctor/DoctorTabs';
@@ -119,6 +120,7 @@ export default function AppNavigator() {
         <Stack.Screen name="OrderSuccess" component={OrderSuccessScreen} options={{gestureEnabled: false}} />
         <Stack.Screen name="Orders" component={OrdersScreen} />
         <Stack.Screen name="Wishlist" component={WishlistScreen} />
+        <Stack.Screen name="Wellness" component={WellnessNavigator} />
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         <Stack.Screen name="SignUp" component={SignUpScreen} />
         <Stack.Screen name="DoctorDetail" component={DoctorDetailScreen} />

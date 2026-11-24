@@ -1,5 +1,5 @@
-// Sample catalog used until the backend API is connected.
-// Product names follow atiyaherbs.com; prices, sizes and descriptions are placeholders.
+// A small list of sample products for the tests (product filters, voice search).
+// The app itself gets its products from the backend; nothing here is shown to a customer.
 
 const IMG_OIL =
   'https://images.unsplash.com/photo-1608248597359-f37b99f5b0d3?auto=format&fit=crop&w=600&q=80';
@@ -7,28 +7,6 @@ const IMG_HONEY =
   'https://images.unsplash.com/photo-1587049352847-4a222e784d38?auto=format&fit=crop&w=600&q=80';
 const IMG_CAPSULE =
   'https://images.unsplash.com/photo-1584017911766-d451b3d0e843?auto=format&fit=crop&w=600&q=80';
-
-export const CATEGORIES = [
-  {id: 'herbal-medicine', name: 'Herbal Medicine', icon: 'bottle-tonic-plus-outline'},
-  {id: 'immunity', name: 'Immunity Booster', icon: 'shield-check-outline'},
-  {id: 'hair-care', name: 'Hair Care', icon: 'face-man-outline'},
-  {id: 'skin-care', name: 'Skin Care', icon: 'face-woman-shimmer-outline'},
-  {id: 'natural-gond', name: 'Natural Gond', icon: 'seed-outline'},
-  {id: 'vinegar', name: 'Vinegars (Sirka)', icon: 'bottle-tonic-outline'},
-  {id: 'herbal-tea', name: 'Herbal Tea', icon: 'tea-outline'},
-  {id: 'single-herb', name: 'Single Herb', icon: 'sprout-outline'},
-];
-
-export const CONCERNS = [
-  {id: 'joint-pain', name: 'Joint Pain', icon: 'arm-flex-outline', tint: '#E8F5E9'},
-  {id: 'back-pain', name: 'Back Pain', icon: 'human-handsdown', tint: '#FFF8E7'},
-  {id: 'diabetes', name: 'Diabetes', icon: 'water-outline', tint: '#E3F2FD'},
-  {id: 'gut-health', name: 'Gut Health', icon: 'food-apple-outline', tint: '#FCE4EC'},
-  {id: 'hair', name: 'Hair', icon: 'face-man-outline', tint: '#F3E5F5'},
-  {id: 'skin', name: 'Skin', icon: 'face-woman-shimmer-outline', tint: '#FFF3E0'},
-  {id: 'weight-loss', name: 'Weight Loss', icon: 'tape-measure', tint: '#E0F2F1'},
-  {id: 'immunity', name: 'Immunity', icon: 'shield-check-outline', tint: '#F1F8E9'},
-];
 
 const product = p => ({
   rating: 4.7,
@@ -311,40 +289,3 @@ export const PRODUCTS = [
     ingredients: 'Giloy, Tulsi, Ashwagandha, Amla',
   }),
 ];
-
-export const BANNERS = [
-  {
-    id: '1',
-    badge: 'HAKIM SULEMAN KHAN',
-    title: 'Authentic Ayurvedic & Unani remedies',
-    concern: null,
-    image: require('../assets/images/banner_shilajit.jpg'),
-    // Sea gradient (deep ocean → turquoise → shallow water); the other banners use the default green
-    gradient: 'linear-gradient(135deg, #03045E 0%, #0077B6 40%, #00B4D8 75%, #90E0EF 100%)',
-  },
-  {
-    id: '2',
-    badge: 'GOND SIYAH RANGE',
-    title: 'Joint pain relief, the Unani way',
-    concern: 'joint-pain',
-    image: require('../assets/images/banner_gond_siyah.jpg'),
-  },
-  {
-    id: '3',
-    badge: 'CUMIN VINEGAR',
-    title: 'Natural & pure, with the goodness of cumin',
-    concern: null,
-    category: 'vinegar',
-    image: require('../assets/images/banner_cumin_vinegar.jpg'),
-  },
-];
-
-export const COUPONS = {
-  ATIYA10: {code: 'ATIYA10', percent: 10, label: '10% off on your order'},
-  APP5: {code: 'APP5', percent: 5, label: 'Extra 5% off on app orders'},
-};
-
-export const getProduct = id => PRODUCTS.find(p => p.id === id);
-export const getCategory = id => CATEGORIES.find(c => c.id === id);
-export const getConcern = id => CONCERNS.find(c => c.id === id);
-export const discountPercent = p => Math.round(((p.mrp - p.price) / p.mrp) * 100);

@@ -179,6 +179,10 @@ function createFakePrisma() {
   let creditEntrySeq = 0;
   let videoAuditSeq = 0;
   let logSeq = 0;
+  let wellnessDaySeq = 0;
+  let wellnessWalkSeq = 0;
+  let wellnessPointSeq = 0;
+  let wellnessBatchSeq = 0;
   let userSeq = 0;
   let videoNoSeq = 0;
   const now = () => new Date();
@@ -232,6 +236,11 @@ function createFakePrisma() {
     coupon: createTable({defaults: () => ({minSubtotal: 0, maxDiscount: null, expiresAt: null, active: true})}),
     cartItem: createTable({defaults: () => ({id: randomUUID(), createdAt: now(), updatedAt: now()})}),
     address: createTable({defaults: () => ({id: randomUUID(), line2: null, isDefault: false, createdAt: now(), updatedAt: now()})}),
+    wellnessSettings: createTable({defaults: () => ({waterGoalGlasses: 8, glassMl: 250, stepGoal: 6000, createdAt: now(), updatedAt: now()})}),
+    wellnessDay: createTable({defaults: () => ({id: ++wellnessDaySeq, waterMl: 0, steps: 0, mood: null, createdAt: now(), updatedAt: now()})}),
+    wellnessWalk: createTable({defaults: () => ({id: ++wellnessWalkSeq, createdAt: now()})}),
+    wellnessStepBatch: createTable({unique: ['key'], defaults: () => ({id: ++wellnessBatchSeq, createdAt: now()})}),
+    wellnessPoint: createTable({unique: ['refKey'], defaults: () => ({id: ++wellnessPointSeq, ref: null, day: null, createdAt: now()})}),
     order: createTable({
       unique: ['orderNumber'],
       defaults: () => ({

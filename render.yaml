@@ -51,6 +51,9 @@ services:
       # The "Web application" OAuth client ID of Google Sign-In (not a secret). Empty = "Continue with Google" is off.
       - key: GOOGLE_CLIENT_IDS
         sync: false
+      # Redis for the "last 10 minutes of steps" (rediss://... of a hosted Redis, for example Render Key Value). Empty = off.
+      - key: REDIS_URL
+        sync: false
   - type: web
     name: atiyaherbs-calls
     runtime: docker

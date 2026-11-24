@@ -1,4 +1,4 @@
-import {PRODUCTS} from '../src/data/catalog';
+import {PRODUCTS} from '../test-utils/sampleProducts';
 import {DEFAULT_FILTERS, applyFilters, countActiveFilters} from '../src/utils/productFilters';
 
 const run = patch => applyFilters(PRODUCTS, {...DEFAULT_FILTERS, ...patch});

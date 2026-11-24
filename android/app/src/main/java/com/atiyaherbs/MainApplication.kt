@@ -8,6 +8,8 @@ import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.atiyaherbs.voice.VoiceSearchPackage
 import com.atiyaherbs.contacts.ContactsPackage
+import com.atiyaherbs.steps.StepsPackage
+import com.atiyaherbs.reminders.RemindersPackage
 import com.livekit.reactnative.LiveKitReactNative
 import com.livekit.reactnative.audio.AudioType
 
@@ -20,6 +22,8 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           add(VoiceSearchPackage())
           add(ContactsPackage())
+          add(StepsPackage())
+          add(RemindersPackage())
         },
     )
   }
