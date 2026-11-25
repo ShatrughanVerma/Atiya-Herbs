@@ -27,12 +27,11 @@ const TODAY = (patch = {}) => ({
   goals: {
     items: [
       {id: 'water', done: false},
-      {id: 'medicines', done: true, none: true},
       {id: 'mood', done: false},
     ],
-    done: 1,
-    total: 3,
-    percent: 33,
+    done: 0,
+    total: 2,
+    percent: 0,
     complete: false,
   },
   streak: {current: 0, best: 0},
@@ -96,8 +95,8 @@ describe('Wellness Home', () => {
     await mount(WellnessHomeScreen);
     expect(calls[0].key).toBe('GET /wellness/today');
     expect(calls[0].auth).toBe('Bearer a1');
-    expect(hasText(/^1\/3$/)).toBe(true);
-    expect(hasText(/^33%$/)).toBe(true);
+    expect(hasText(/^0\/2$/)).toBe(true);
+    expect(hasText(/^0%$/)).toBe(true);
     expect(hasText(/^0 ml$/)).toBe(true);
     expect(hasText(/^of 2,000 ml$/)).toBe(true);
     expect(hasText(/^3$/)).toBe(true); // the streak
@@ -128,12 +127,11 @@ describe('Wellness Home', () => {
           goals: {
             items: [
               {id: 'water', done: false},
-              {id: 'medicines', done: true, none: true},
               {id: 'mood', done: true},
             ],
-            done: 2,
-            total: 3,
-            percent: 67,
+            done: 1,
+            total: 2,
+            percent: 50,
             complete: false,
           },
         }),
@@ -142,8 +140,8 @@ describe('Wellness Home', () => {
     await mount(WellnessHomeScreen);
     await press('Feeling Good');
     expect(calls.find(c => c.key === 'PUT /wellness/mood').body).toEqual({mood: 'good'});
-    expect(hasText(/^2\/3$/)).toBe(true);
-    expect(hasText(/^67%$/)).toBe(true);
+    expect(hasText(/^1\/2$/)).toBe(true);
+    expect(hasText(/^50%$/)).toBe(true);
   });
 
   test('taps are sent in order: three glasses make three requests', async () => {

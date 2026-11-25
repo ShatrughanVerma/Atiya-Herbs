@@ -5,6 +5,7 @@ import { colors } from '../../theme';
 import { useWellness } from '../context/WellnessContext';
 import { clock, distanceKm, kcalOf, pace } from '../utils/stepMath';
 import { Card, CardTitle, ProgressBar } from './parts';
+import { fz, sz } from '../utils/scale';
 
 const ORANGE = '#F57C00';
 const fmt = n => Math.round(n).toLocaleString('en-IN');
@@ -13,7 +14,7 @@ const fmt = n => Math.round(n).toLocaleString('en-IN');
 function Stat({ icon, value, label }) {
   return (
     <View style={styles.stat}>
-      <Icon name={icon} size={20} color={ORANGE} />
+      <Icon name={icon} size={sz(20)} color={ORANGE} />
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
@@ -145,7 +146,7 @@ export function WalkCard() {
             <Stat icon="speedometer" value={pace(seconds, km)} label="Min / km" />
           </View>
           <Pressable style={styles.stop} onPress={onStop} accessibilityRole="button" accessibilityLabel="Stop walk">
-            <Icon name="stop" size={20} color="#fff" />
+            <Icon name="stop" size={sz(20)} color="#fff" />
             <Text style={styles.primaryText}>Stop walk</Text>
           </Pressable>
         </>
@@ -157,7 +158,7 @@ export function WalkCard() {
               : 'Track a walk live: time, steps, distance and pace.'}
           </Text>
           <Pressable style={styles.primary} onPress={startWalk} accessibilityRole="button" accessibilityLabel="Start walk">
-            <Icon name="play" size={20} color="#fff" />
+            <Icon name="play" size={sz(20)} color="#fff" />
             <Text style={styles.primaryText}>Start walk</Text>
           </Pressable>
         </>
@@ -167,39 +168,39 @@ export function WalkCard() {
 }
 
 const styles = StyleSheet.create({
-  body: { fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.muted },
-  small: { fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.muted, marginTop: 8 },
-  countRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 10 },
-  count: { fontFamily: 'Poppins-Bold', fontSize: 34, color: colors.text },
-  of: { fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.muted, marginLeft: 10 },
-  stats: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 14 },
-  recent: { marginTop: 14, backgroundColor: '#FFF6EC', borderRadius: 12, padding: 10 },
+  body: { fontFamily: 'Poppins-Regular', fontSize: fz(14), color: colors.muted },
+  small: { fontFamily: 'Poppins-Regular', fontSize: fz(12), color: colors.muted, marginTop: sz(8) },
+  countRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: sz(10) },
+  count: { fontFamily: 'Poppins-Bold', fontSize: fz(34), color: colors.text },
+  of: { fontFamily: 'Poppins-Regular', fontSize: fz(14), color: colors.muted, marginLeft: sz(10) },
+  stats: { flexDirection: 'row', justifyContent: 'space-between', marginTop: sz(14) },
+  recent: { marginTop: sz(14), backgroundColor: '#FFF6EC', borderRadius: sz(12), padding: sz(10) },
   recentHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  recentLabel: { fontFamily: 'Poppins-Regular', fontSize: 13, color: colors.muted },
-  recentValue: { fontFamily: 'Poppins-SemiBold', fontSize: 14, color: ORANGE },
-  recentBars: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 28, marginTop: 6 },
-  recentBar: { width: '8%', borderRadius: 3, backgroundColor: '#F8B26A' },
+  recentLabel: { fontFamily: 'Poppins-Regular', fontSize: fz(13), color: colors.muted },
+  recentValue: { fontFamily: 'Poppins-SemiBold', fontSize: fz(14), color: ORANGE },
+  recentBars: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: sz(28), marginTop: sz(6) },
+  recentBar: { width: '8%', borderRadius: sz(3), backgroundColor: '#F8B26A' },
   stat: { flex: 1, alignItems: 'center' },
-  statValue: { fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.text, marginTop: 2 },
-  statLabel: { fontFamily: 'Poppins-Regular', fontSize: 11.5, color: colors.muted },
-  timer: { fontFamily: 'Poppins-Bold', fontSize: 40, color: colors.text, textAlign: 'center' },
+  statValue: { fontFamily: 'Poppins-SemiBold', fontSize: fz(15), color: colors.text, marginTop: sz(2) },
+  statLabel: { fontFamily: 'Poppins-Regular', fontSize: fz(11.5), color: colors.muted },
+  timer: { fontFamily: 'Poppins-Bold', fontSize: fz(40), color: colors.text, textAlign: 'center' },
   primary: {
     flexDirection: 'row',
-    height: 46,
-    borderRadius: 23,
+    height: sz(46),
+    borderRadius: sz(23),
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 14,
+    marginTop: sz(14),
   },
   stop: {
     flexDirection: 'row',
-    height: 46,
-    borderRadius: 23,
+    height: sz(46),
+    borderRadius: sz(23),
     backgroundColor: '#D32F2F',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 16,
+    marginTop: sz(16),
   },
-  primaryText: { fontFamily: 'Poppins-SemiBold', fontSize: 15, color: '#fff', marginLeft: 6 },
+  primaryText: { fontFamily: 'Poppins-SemiBold', fontSize: fz(15), color: '#fff', marginLeft: sz(6) },
 });

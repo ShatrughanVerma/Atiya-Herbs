@@ -21,6 +21,7 @@ import {
   pickMinutes,
 } from '../native/reminders';
 import { clock12 } from '../utils/reminderPlan';
+import { fz, sz } from '../utils/scale';
 
 const GLASS_SIZES = [150, 200, 250, 300, 500];
 const EVERY = [
@@ -89,7 +90,7 @@ export default function WellnessProfileScreen({ navigation }) {
       accessibilityLabel={label}
     >
       <Text style={styles.rowLabel}>{label}</Text>
-      <Icon name="chevron-right" size={18} color={colors.muted} />
+      <Icon name="chevron-right" size={sz(18)} color={colors.muted} />
     </Pressable>
   );
 
@@ -143,7 +144,7 @@ export default function WellnessProfileScreen({ navigation }) {
                   accessibilityRole="button"
                   accessibilityLabel="One glass less"
                 >
-                  <Icon name="minus" size={16} color={colors.primary} />
+                  <Icon name="minus" size={sz(16)} color={colors.primary} />
                 </Pressable>
                 <Text style={styles.count}>{settings.waterGoalGlasses} glasses</Text>
                 <Pressable
@@ -153,7 +154,7 @@ export default function WellnessProfileScreen({ navigation }) {
                   accessibilityRole="button"
                   accessibilityLabel="One glass more"
                 >
-                  <Icon name="plus" size={16} color={colors.primary} />
+                  <Icon name="plus" size={sz(16)} color={colors.primary} />
                 </Pressable>
               </View>
 
@@ -186,7 +187,7 @@ export default function WellnessProfileScreen({ navigation }) {
                   accessibilityRole="button"
                   accessibilityLabel="Lower the step goal"
                 >
-                  <Icon name="minus" size={16} color={colors.primary} />
+                  <Icon name="minus" size={sz(16)} color={colors.primary} />
                 </Pressable>
                 <Text style={styles.count}>{settings.stepGoal.toLocaleString('en-IN')}</Text>
                 <Pressable
@@ -196,7 +197,7 @@ export default function WellnessProfileScreen({ navigation }) {
                   accessibilityRole="button"
                   accessibilityLabel="Raise the step goal"
                 >
-                  <Icon name="plus" size={16} color={colors.primary} />
+                  <Icon name="plus" size={sz(16)} color={colors.primary} />
                 </Pressable>
               </View>
             </Card>
@@ -322,71 +323,71 @@ export default function WellnessProfileScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: WELLNESS_BG },
   flex: { flex: 1 },
-  scroll: { padding: 10, paddingBottom: 100 },
+  scroll: { padding: sz(10), paddingBottom: sz(100) },
   // the cards of this tab are smaller than the others: less space inside and between them
-  card: { padding: 10, marginBottom: 8, borderRadius: 14 },
-  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  card: { padding: sz(10), marginBottom: sz(8), borderRadius: sz(14) },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: sz(8) },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: sz(40),
+    height: sz(40),
+    borderRadius: sz(20),
     backgroundColor: colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: sz(10),
   },
-  avatarText: { fontFamily: 'Poppins-Bold', fontSize: 16, color: colors.primary },
-  name: { fontFamily: 'Poppins-Bold', fontSize: 15.5, color: colors.text },
-  sub: { fontFamily: 'Poppins-Regular', fontSize: 11.5, color: colors.muted },
+  avatarText: { fontFamily: 'Poppins-Bold', fontSize: fz(16), color: colors.primary },
+  name: { fontFamily: 'Poppins-Bold', fontSize: fz(15.5), color: colors.text },
+  sub: { fontFamily: 'Poppins-Regular', fontSize: fz(11.5), color: colors.muted },
   goalRow: { flexDirection: 'row', alignItems: 'center' },
-  gap: { marginTop: 8 },
-  label: { fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text },
-  rowLabel: { fontFamily: 'Poppins-Regular', fontSize: 13, color: colors.text },
-  muted: { fontFamily: 'Poppins-Regular', fontSize: 11.5, color: colors.muted },
-  mark: { fontFamily: 'Poppins-Regular', fontSize: 11.5, color: colors.muted },
+  gap: { marginTop: sz(8) },
+  label: { fontFamily: 'Poppins-SemiBold', fontSize: fz(13), color: colors.text },
+  rowLabel: { fontFamily: 'Poppins-Regular', fontSize: fz(13), color: colors.text },
+  muted: { fontFamily: 'Poppins-Regular', fontSize: fz(11.5), color: colors.muted },
+  mark: { fontFamily: 'Poppins-Regular', fontSize: fz(11.5), color: colors.muted },
   switchSmall: { transform: [{ scale: 0.8 }] },
   round: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: sz(28),
+    height: sz(28),
+    borderRadius: sz(14),
     backgroundColor: '#E7F8EE',
     alignItems: 'center',
     justifyContent: 'center',
   },
   disabled: { opacity: 0.4 },
-  count: { fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.text, marginHorizontal: 6 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
+  count: { fontFamily: 'Poppins-SemiBold', fontSize: fz(13), color: colors.text, marginHorizontal: sz(6) },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', marginTop: sz(4) },
   toggleRow: { flexDirection: 'row', alignItems: 'center' },
   timeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: sz(6),
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#E5E7EB',
   },
   timeRight: { flexDirection: 'row', alignItems: 'center' },
-  time: { fontFamily: 'Poppins-SemiBold', fontSize: 13, color: colors.primary },
+  time: { fontFamily: 'Poppins-SemiBold', fontSize: fz(13), color: colors.primary },
   navRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: sz(8),
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#E5E7EB',
   },
-  warn: { backgroundColor: '#FFF3D6', borderRadius: 8, padding: 8, marginBottom: 4 },
-  warnText: { fontFamily: 'Poppins-Regular', fontSize: 12, color: '#8A5A00' },
+  warn: { backgroundColor: '#FFF3D6', borderRadius: sz(8), padding: sz(8), marginBottom: sz(4) },
+  warnText: { fontFamily: 'Poppins-Regular', fontSize: fz(12), color: '#8A5A00' },
   allow: {
-    height: 34,
-    borderRadius: 17,
+    height: sz(34),
+    borderRadius: sz(17),
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
-    marginBottom: 4,
+    marginTop: sz(8),
+    marginBottom: sz(4),
   },
-  allowText: { fontFamily: 'Poppins-SemiBold', fontSize: 13, color: '#fff' },
-  reset: { alignSelf: 'center', paddingVertical: 6 },
-  resetText: { fontFamily: 'Poppins-Medium', fontSize: 13, color: '#E53935' },
+  allowText: { fontFamily: 'Poppins-SemiBold', fontSize: fz(13), color: '#fff' },
+  reset: { alignSelf: 'center', paddingVertical: sz(6) },
+  resetText: { fontFamily: 'Poppins-Medium', fontSize: fz(13), color: '#E53935' },
 });

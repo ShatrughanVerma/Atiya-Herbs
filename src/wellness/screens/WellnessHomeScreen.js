@@ -21,6 +21,7 @@ import BadgeCircle from '../components/BadgeCircle';
 import { StepsCard, WalkCard } from '../components/StepsWalk';
 import { useWellness } from '../context/WellnessContext';
 import { weekdayShort } from '../utils/dates';
+import { fz, sz } from '../utils/scale';
 
 const firstName = user => (user?.name || '').trim().split(/\s+/)[0] || 'there';
 
@@ -28,7 +29,7 @@ const hintOf = today => {
   if (today.goals.complete) {
     return 'All goals done today. Well done!';
   }
-  return 'Water, medicines and mood: keep going!';
+  return 'Water and mood: keep going!';
 };
 
 export default function WellnessHomeScreen({ navigation }) {
@@ -70,7 +71,7 @@ export default function WellnessHomeScreen({ navigation }) {
             hitSlop={10}
             accessibilityLabel="Back"
           >
-            <Icon name="chevron-left" size={30} color={colors.text} />
+            <Icon name="chevron-left" size={sz(30)} color={colors.text} />
           </Pressable>
           <View style={styles.headerTitle}>
             <Text style={styles.brand}>Atiya 360</Text>
@@ -83,7 +84,7 @@ export default function WellnessHomeScreen({ navigation }) {
             accessibilityRole="button"
             accessibilityLabel="Notifications"
           >
-            <Icon name="bell-outline" size={24} color={colors.text} />
+            <Icon name="bell-outline" size={sz(24)} color={colors.text} />
             {/* a red dot while notifications are off: the reminders cannot ring */}
             {notifications.status === 'blocked' && <View style={styles.bellDot} accessibilityLabel="Notifications are off" />}
           </Pressable>
@@ -97,7 +98,7 @@ export default function WellnessHomeScreen({ navigation }) {
 
         <Card style={styles.summary}>
           <GoalRing percent={today.goals.percent}>
-            <Icon name="leaf" size={20} color={colors.primary} />
+            <Icon name="leaf" size={sz(20)} color={colors.primary} />
             <Text style={styles.ringBig}>
               {today.goals.done}/{today.goals.total}
             </Text>
@@ -110,7 +111,7 @@ export default function WellnessHomeScreen({ navigation }) {
             <Text style={styles.hint}>{hintOf(today)}</Text>
           </View>
           <View style={styles.streak}>
-            <Icon name="trophy" size={26} color="#F5A623" />
+            <Icon name="trophy" size={sz(26)} color="#F5A623" />
             <Text style={styles.streakNum}>{today.streak.current}</Text>
             <Text style={styles.streakLabel} numberOfLines={1}>Day streak</Text>
             <Text style={styles.streakSub}>
@@ -123,7 +124,7 @@ export default function WellnessHomeScreen({ navigation }) {
           <Card style={styles.half}>
             <View style={styles.iconTitle}>
               <View style={[styles.iconBox, { backgroundColor: BLUE_LIGHT }]}>
-                <Icon name="water" size={22} color={BLUE} />
+                <Icon name="water" size={sz(16)} color={BLUE} />
               </View>
               <Text style={styles.halfTitle}>Water intake</Text>
             </View>
@@ -145,7 +146,7 @@ export default function WellnessHomeScreen({ navigation }) {
                 accessibilityRole="button"
                 accessibilityLabel="Take one glass back"
               >
-                <Icon name="minus" size={20} color={BLUE} />
+                <Icon name="minus" size={sz(16)} color={BLUE} />
               </Pressable>
               <Pressable
                 style={styles.addWater}
@@ -161,7 +162,7 @@ export default function WellnessHomeScreen({ navigation }) {
           <Card style={styles.half}>
             <View style={styles.iconTitle}>
               <View style={[styles.iconBox, { backgroundColor: colors.primaryLight }]}>
-                <Icon name="pill" size={22} color={colors.primary} />
+                <Icon name="pill" size={sz(16)} color={colors.primary} />
               </View>
               <Text style={styles.halfTitle}>Medicine adherence</Text>
             </View>
@@ -201,7 +202,7 @@ export default function WellnessHomeScreen({ navigation }) {
 
         <Card style={styles.rewardCard}>
           <View style={styles.rewardIcon}>
-            <Icon name="gift" size={28} color="#F57C00" />
+            <Icon name="gift" size={sz(28)} color="#F57C00" />
           </View>
           <View style={styles.flex}>
             <Text style={styles.muted}>Reward points</Text>
@@ -254,55 +255,55 @@ export default function WellnessHomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: WELLNESS_BG },
   flex: { flex: 1 },
-  scroll: { padding: 16, paddingBottom: 120 },
-  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  headerTitle: { flex: 1, marginLeft: 4 },
-  bell: { marginRight: 14, padding: 4 },
-  bellDot: { position: 'absolute', top: 3, right: 3, width: 10, height: 10, borderRadius: 5, backgroundColor: '#E53935', borderWidth: 1.5, borderColor: WELLNESS_BG },
-  brand: { fontFamily: 'Poppins-Bold', fontSize: 22, color: colors.primary },
-  tagline: { fontFamily: 'Poppins-Regular', fontSize: 13, color: colors.muted },
+  scroll: { padding: sz(16), paddingBottom: sz(120) },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: sz(8) },
+  headerTitle: { flex: 1, marginLeft: sz(4) },
+  bell: { marginRight: sz(14), padding: sz(4) },
+  bellDot: { position: 'absolute', top: sz(3), right: sz(3), width: sz(10), height: sz(10), borderRadius: sz(5), backgroundColor: '#E53935', borderWidth: 1.5, borderColor: WELLNESS_BG },
+  brand: { fontFamily: 'Poppins-Bold', fontSize: fz(22), color: colors.primary },
+  tagline: { fontFamily: 'Poppins-Regular', fontSize: fz(13), color: colors.muted },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: sz(44),
+    height: sz(44),
+    borderRadius: sz(22),
     backgroundColor: colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { fontFamily: 'Poppins-Bold', fontSize: 18, color: colors.primary },
-  hello: { fontFamily: 'Poppins-Bold', fontSize: 28, color: colors.text, marginTop: 8 },
-  sub: { fontFamily: 'Poppins-Regular', fontSize: 15, color: colors.muted, marginBottom: 14 },
+  avatarText: { fontFamily: 'Poppins-Bold', fontSize: fz(18), color: colors.primary },
+  hello: { fontFamily: 'Poppins-Bold', fontSize: fz(28), color: colors.text, marginTop: sz(8) },
+  sub: { fontFamily: 'Poppins-Regular', fontSize: fz(15), color: colors.muted, marginBottom: sz(14) },
   summary: { flexDirection: 'row', alignItems: 'center' },
-  ringBig: { fontFamily: 'Poppins-Bold', fontSize: 20, color: colors.text },
-  ringSmall: { fontFamily: 'Poppins-Regular', fontSize: 10, color: colors.muted },
-  summaryMid: { flex: 1, marginHorizontal: 12 },
-  percent: { fontFamily: 'Poppins-Bold', fontSize: 26, color: colors.text },
-  muted: { fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.muted },
-  hint: { fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.muted, marginTop: 6 },
+  ringBig: { fontFamily: 'Poppins-Bold', fontSize: fz(20), color: colors.text },
+  ringSmall: { fontFamily: 'Poppins-Regular', fontSize: fz(10), color: colors.muted },
+  summaryMid: { flex: 1, marginHorizontal: sz(12) },
+  percent: { fontFamily: 'Poppins-Bold', fontSize: fz(26), color: colors.text },
+  muted: { fontFamily: 'Poppins-Regular', fontSize: fz(12.5), color: colors.muted },
+  hint: { fontFamily: 'Poppins-Regular', fontSize: fz(12), color: colors.muted, marginTop: sz(6) },
   streak: {
     alignItems: 'center',
     backgroundColor: '#E7F8EE',
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 6,
-    width: 84,
+    borderRadius: sz(16),
+    paddingVertical: sz(12),
+    paddingHorizontal: sz(6),
+    width: sz(84),
   },
-  streakNum: { fontFamily: 'Poppins-Bold', fontSize: 24, color: colors.text },
-  streakLabel: { fontFamily: 'Poppins-Medium', fontSize: 11.5, color: colors.text, textAlign: 'center' },
-  streakSub: { fontFamily: 'Poppins-Regular', fontSize: 10.5, color: colors.muted, textAlign: 'center' },
+  streakNum: { fontFamily: 'Poppins-Bold', fontSize: fz(24), color: colors.text },
+  streakLabel: { fontFamily: 'Poppins-Medium', fontSize: fz(11.5), color: colors.text, textAlign: 'center' },
+  streakSub: { fontFamily: 'Poppins-Regular', fontSize: fz(10.5), color: colors.muted, textAlign: 'center' },
   pair: { flexDirection: 'row', justifyContent: 'space-between' },
-  half: { width: '48.5%' },
-  iconTitle: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  iconBox: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  halfTitle: { fontFamily: 'Poppins-SemiBold', fontSize: 13.5, color: colors.text, marginLeft: 8, flex: 1 },
-  big: { fontFamily: 'Poppins-Bold', fontSize: 22, color: colors.text },
-  waterBar: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
-  waterPct: { fontFamily: 'Poppins-Medium', fontSize: 12, color: colors.muted, marginLeft: 8 },
-  waterBtns: { flexDirection: 'row', marginTop: 12 },
+  half: { width: '48.5%', padding: sz(10), marginBottom: sz(10) },
+  iconTitle: { flexDirection: 'row', alignItems: 'center', marginBottom: sz(4) },
+  iconBox: { width: sz(26), height: sz(26), borderRadius: sz(8), alignItems: 'center', justifyContent: 'center' },
+  halfTitle: { fontFamily: 'Poppins-SemiBold', fontSize: fz(12.5), color: colors.text, marginLeft: sz(6), flex: 1 },
+  big: { fontFamily: 'Poppins-Bold', fontSize: fz(17), color: colors.text },
+  waterBar: { flexDirection: 'row', alignItems: 'center', marginTop: sz(4) },
+  waterPct: { fontFamily: 'Poppins-Medium', fontSize: fz(11), color: colors.muted, marginLeft: sz(6) },
+  waterBtns: { flexDirection: 'row', marginTop: sz(8) },
   minus: {
-    width: 38,
-    height: 42,
-    borderRadius: 14,
+    width: sz(30),
+    height: sz(30),
+    borderRadius: sz(9),
     backgroundColor: BLUE_LIGHT,
     alignItems: 'center',
     justifyContent: 'center',
@@ -310,31 +311,31 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.4 },
   addWater: {
     flex: 1,
-    height: 42,
-    borderRadius: 14,
+    height: sz(30),
+    borderRadius: sz(9),
     backgroundColor: BLUE_LIGHT,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 6,
+    marginLeft: sz(5),
   },
-  addWaterText: { fontFamily: 'Poppins-SemiBold', fontSize: 13, color: BLUE },
-  medBar: { marginTop: 22 },
+  addWaterText: { fontFamily: 'Poppins-SemiBold', fontSize: fz(12), color: BLUE },
+  medBar: { marginTop: sz(6) },
   schedule: {
-    height: 44,
-    borderRadius: 14,
+    height: sz(30),
+    borderRadius: sz(9),
     backgroundColor: '#E7F8EE',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 12,
+    marginTop: sz(8),
   },
-  scheduleText: { fontFamily: 'Poppins-SemiBold', fontSize: 14, color: colors.primary },
-  question: { fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.text, marginBottom: 12 },
+  scheduleText: { fontFamily: 'Poppins-SemiBold', fontSize: fz(12), color: colors.primary },
+  question: { fontFamily: 'Poppins-SemiBold', fontSize: fz(16), color: colors.text, marginBottom: sz(12) },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  link: { fontFamily: 'Poppins-Medium', fontSize: 13, color: colors.primary },
+  link: { fontFamily: 'Poppins-Medium', fontSize: fz(13), color: colors.primary },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap' },
   rewardCard: { flexDirection: 'row', alignItems: 'center' },
-  rewardIcon: { width: 54, height: 54, borderRadius: 16, backgroundColor: '#FFF1E4', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  rewardPoints: { fontFamily: 'Poppins-Bold', fontSize: 20, color: colors.text },
-  redeem: { backgroundColor: '#7C3AED', borderRadius: 22, paddingHorizontal: 14, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
-  redeemText: { fontFamily: 'Poppins-SemiBold', fontSize: 13, color: '#fff' },
+  rewardIcon: { width: sz(54), height: sz(54), borderRadius: sz(16), backgroundColor: '#FFF1E4', alignItems: 'center', justifyContent: 'center', marginRight: sz(12) },
+  rewardPoints: { fontFamily: 'Poppins-Bold', fontSize: fz(20), color: colors.text },
+  redeem: { backgroundColor: '#7C3AED', borderRadius: sz(22), paddingHorizontal: sz(14), height: sz(44), alignItems: 'center', justifyContent: 'center', marginLeft: sz(8) },
+  redeemText: { fontFamily: 'Poppins-SemiBold', fontSize: fz(13), color: '#fff' },
 });

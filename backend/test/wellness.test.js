@@ -41,8 +41,9 @@ describe('wellness: today', () => {
     expect(res.body.steps).toEqual({count: 0, goal: 6000, percent: 0, distanceKm: 0, kcal: 0, perStep: {km: 0.00075, kcal: 0.04}});
     expect(res.body.water).toEqual({ml: 0, glasses: 0, goalMl: 2000, goalGlasses: 8, percent: 0});
     expect(res.body.mood).toBeNull();
-    // no medicines are due, so that goal is already done: 1 of 3, like the screen shows
-    expect(res.body.goals).toMatchObject({done: 1, total: 3, percent: 33, complete: false});
+    // nothing done yet: 0 of 2
+    expect(res.body.goals).toMatchObject({done: 0, total: 2, percent: 0, complete: false});
+    expect(res.body.goals.items.map(goal => goal.id)).toEqual(['water', 'mood']); // no medicines goal yet
     expect(res.body.streak).toEqual({current: 0, best: 0});
     expect(res.body.week).toHaveLength(7);
     expect(res.body.week[6].day).toBe(istDay());
@@ -76,10 +77,10 @@ describe('wellness: water and mood', () => {
     const w = api(t, await t.login());
     await w.water(2000).expect(200);
     const water = await w.today();
-    expect(water.body.goals).toMatchObject({done: 2, complete: false});
+    expect(water.body.goals).toMatchObject({done: 1, percent: 50, complete: false});
     const done = await w.mood('good').expect(200);
     expect(done.body.mood).toBe('good');
-    expect(done.body.goals).toMatchObject({done: 3, percent: 100, complete: true});
+    expect(done.body.goals).toMatchObject({done: 2, percent: 100, complete: true});
     expect(done.body.streak.current).toBe(1);
     const cleared = await w.mood(null).expect(200);
     expect(cleared.body.mood).toBeNull();

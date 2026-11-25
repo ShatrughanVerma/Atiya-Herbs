@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../../theme';
+import { fz, sz } from '../utils/scale';
 
 // The small building blocks of the wellness screens.
 
@@ -50,7 +51,7 @@ export function ProgressBar({ percent, color = colors.primary, height = 8 }) {
 // A smooth ring made of many short, overlapping pieces (no SVG package is needed): a grey track, and the first
 // `percent` of the circle in green, starting at the top and going clockwise
 const PIECES = 120;
-export function GoalRing({ percent, size = 104, stroke = 10, children }) {
+export function GoalRing({ percent, size = sz(104), stroke = sz(10), children }) {
   const radius = (size - stroke) / 2;
   const piece = ((2 * Math.PI * radius) / PIECES) * 1.6; // longer than the gap, so neighbours overlap
   const filled = Math.round((Math.max(0, Math.min(100, percent)) / 100) * PIECES);
@@ -127,7 +128,7 @@ export function WeekBars({ week, labelOf, goal, getValue = d => d.glasses }) {
       {week.map((d, i) => {
         const last = i === week.length - 1;
         const value = getValue(d);
-        const height = Math.max(4, Math.round((value / top) * 80));
+        const height = Math.max(4, Math.round((value / top) * sz(80)));
         return (
           <View key={d.day} style={styles.weekCol}>
             <View style={styles.weekBarArea}>
@@ -152,23 +153,23 @@ export function WeekBars({ week, labelOf, goal, getValue = d => d.glasses }) {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 14,
+    borderRadius: sz(20),
+    padding: sz(16),
+    marginBottom: sz(14),
     shadowColor: '#0B3D1E',
     shadowOpacity: 0.08,
     shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: sz(0), height: sz(2) },
     elevation: 2,
   },
-  titleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  titleRowSmall: { marginBottom: 4 },
-  cardTitleSmall: { fontSize: 13.5, marginLeft: 6 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: sz(10) },
+  titleRowSmall: { marginBottom: sz(4) },
+  cardTitleSmall: { fontSize: fz(13.5), marginLeft: sz(6) },
   cardTitle: {
     fontFamily: 'Poppins-SemiBold',
-    fontSize: 16,
+    fontSize: fz(16),
     color: colors.text,
-    marginLeft: 8,
+    marginLeft: sz(8),
     flexShrink: 1,
   },
   track: { backgroundColor: '#E4EAE5', overflow: 'hidden' },
@@ -181,32 +182,32 @@ const styles = StyleSheet.create({
   moodBtn: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 10,
-    marginHorizontal: 3,
-    borderRadius: 14,
+    paddingVertical: sz(10),
+    marginHorizontal: sz(3),
+    borderRadius: sz(14),
     backgroundColor: '#F1F6F2',
     borderWidth: 2,
     borderColor: 'transparent',
   },
   moodBtnOn: { backgroundColor: '#E7F8EE', borderColor: colors.primary },
-  moodEmoji: { fontSize: 26 },
-  moodLabel: { fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.muted, marginTop: 2 },
+  moodEmoji: { fontSize: fz(26) },
+  moodLabel: { fontFamily: 'Poppins-Regular', fontSize: fz(12), color: colors.muted, marginTop: sz(2) },
   chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
+    paddingHorizontal: sz(16),
+    paddingVertical: sz(8),
+    borderRadius: sz(20),
+    marginRight: sz(8),
   },
-  chipSmall: { paddingHorizontal: 8, paddingVertical: 4, marginRight: 5, marginBottom: 4 },
+  chipSmall: { paddingHorizontal: sz(8), paddingVertical: sz(4), marginRight: sz(5), marginBottom: sz(4) },
   chipOn: { backgroundColor: colors.primary },
-  chipText: { fontFamily: 'Poppins-Medium', fontSize: 14, color: colors.muted },
-  chipTextSmall: { fontSize: 12 },
+  chipText: { fontFamily: 'Poppins-Medium', fontSize: fz(14), color: colors.muted },
+  chipTextSmall: { fontSize: fz(12) },
   chipTextOn: { color: '#fff' },
-  weekRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
+  weekRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: sz(6) },
   weekCol: { flex: 1, alignItems: 'center' },
-  weekBarArea: { height: 84, justifyContent: 'flex-end' },
-  weekBar: { width: 22, borderRadius: 6 },
-  weekLabel: { fontFamily: 'Poppins-Regular', fontSize: 12, color: colors.muted, marginTop: 6 },
+  weekBarArea: { height: sz(84), justifyContent: 'flex-end' },
+  weekBar: { width: sz(22), borderRadius: sz(6) },
+  weekLabel: { fontFamily: 'Poppins-Regular', fontSize: fz(12), color: colors.muted, marginTop: sz(6) },
   weekLabelOn: { color: colors.primary, fontFamily: 'Poppins-SemiBold' },
-  weekValue: { fontFamily: 'Poppins-Medium', fontSize: 13, color: colors.text },
+  weekValue: { fontFamily: 'Poppins-Medium', fontSize: fz(13), color: colors.text },
 });

@@ -8,6 +8,7 @@ import useRefresh from '../../utils/useRefresh';
 import { BLUE, BLUE_LIGHT, Card, Chip, ProgressBar, WELLNESS_BG, moodEmoji } from '../components/parts';
 import { useWellness } from '../context/WellnessContext';
 import { fetchReport } from '../services/wellnessApi';
+import { fz, sz } from '../utils/scale';
 
 const ORANGE = '#F57C00';
 const RANGES = [
@@ -25,7 +26,7 @@ const topMood = moods => {
 function Tile({ color, icon, iconColor, title, value, note }) {
   return (
     <View style={[styles.tile, { backgroundColor: color }]}>
-      <Icon name={icon} size={20} color={iconColor} />
+      <Icon name={icon} size={sz(20)} color={iconColor} />
       <Text style={styles.tileTitle}>{title}</Text>
       <Text style={styles.tileValue}>{value}</Text>
       <Text style={styles.tileNote}>{note}</Text>
@@ -116,19 +117,19 @@ export default function ReportsScreen() {
         <Card>
           <Text style={styles.cardTitle}>{mode.now}</Text>
           <View style={styles.line}>
-            <Icon name="water" size={18} color={BLUE} />
+            <Icon name="water" size={sz(18)} color={BLUE} />
             <Text style={[styles.lineLabel, styles.flex]}>Water</Text>
             <Text style={styles.lineValue}>{summary.waterPercent}%</Text>
           </View>
           <ProgressBar percent={summary.waterPercent} color={BLUE} />
           <View style={[styles.line, styles.lineGap]}>
-            <Icon name="shoe-print" size={18} color={ORANGE} />
+            <Icon name="shoe-print" size={sz(18)} color={ORANGE} />
             <Text style={[styles.lineLabel, styles.flex]}>Steps</Text>
             <Text style={styles.lineValue}>{stepsPercent}% of goal</Text>
           </View>
           <ProgressBar percent={stepsPercent} color={ORANGE} />
           <View style={[styles.line, styles.lineGap]}>
-            <Icon name="pill" size={18} color={colors.primary} />
+            <Icon name="pill" size={sz(18)} color={colors.primary} />
             <Text style={[styles.lineLabel, styles.flex]}>Medicines</Text>
             <Text style={styles.lineValue}>—</Text>
           </View>
@@ -147,13 +148,13 @@ export default function ReportsScreen() {
               {topMood(p.moods) ? <Text style={styles.mood}>{moodEmoji(topMood(p.moods))}</Text> : null}
             </View>
             <View style={styles.line}>
-              <Icon name="water" size={18} color={BLUE} />
+              <Icon name="water" size={sz(18)} color={BLUE} />
               <Text style={[styles.lineLabel, styles.flex]}>Water</Text>
               <Text style={styles.lineValue}>{p.waterPercent}%</Text>
             </View>
             <ProgressBar percent={p.waterPercent} color={BLUE} />
             <View style={[styles.line, styles.lineGap]}>
-              <Icon name="shoe-print" size={18} color={ORANGE} />
+              <Icon name="shoe-print" size={sz(18)} color={ORANGE} />
               <Text style={[styles.lineLabel, styles.flex]}>Steps</Text>
               <Text style={styles.lineValue}>{fmt(p.totalSteps)}</Text>
             </View>
@@ -170,22 +171,22 @@ export default function ReportsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: WELLNESS_BG },
   flex: { flex: 1 },
-  scroll: { padding: 16, paddingBottom: 120 },
-  head: { padding: 16, paddingBottom: 0 },
-  title: { fontFamily: 'Poppins-Bold', fontSize: 28, color: colors.text, marginBottom: 10 },
-  chips: { flexDirection: 'row', marginBottom: 12 },
-  tiles: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  tile: { width: '48.5%', borderRadius: 18, padding: 14 },
-  tileTitle: { fontFamily: 'Poppins-Regular', fontSize: 13.5, color: colors.muted, marginTop: 4 },
-  tileValue: { fontFamily: 'Poppins-Bold', fontSize: 26, color: colors.text },
-  tileNote: { fontFamily: 'Poppins-Regular', fontSize: 13, color: colors.muted },
-  cardTitle: { fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.text, marginBottom: 8 },
-  line: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  lineGap: { marginTop: 12 },
-  lineLabel: { fontFamily: 'Poppins-Regular', fontSize: 15, color: colors.text, marginLeft: 8 },
-  lineValue: { fontFamily: 'Poppins-Medium', fontSize: 15, color: colors.muted },
-  foot: { fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.muted, marginTop: 10 },
-  section: { fontFamily: 'Poppins-Bold', fontSize: 20, color: colors.text, marginTop: 6, marginBottom: 10 },
+  scroll: { padding: sz(16), paddingBottom: sz(120) },
+  head: { padding: sz(16), paddingBottom: sz(0) },
+  title: { fontFamily: 'Poppins-Bold', fontSize: fz(28), color: colors.text, marginBottom: sz(10) },
+  chips: { flexDirection: 'row', marginBottom: sz(12) },
+  tiles: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: sz(10) },
+  tile: { width: '48.5%', borderRadius: sz(18), padding: sz(14) },
+  tileTitle: { fontFamily: 'Poppins-Regular', fontSize: fz(13.5), color: colors.muted, marginTop: sz(4) },
+  tileValue: { fontFamily: 'Poppins-Bold', fontSize: fz(26), color: colors.text },
+  tileNote: { fontFamily: 'Poppins-Regular', fontSize: fz(13), color: colors.muted },
+  cardTitle: { fontFamily: 'Poppins-SemiBold', fontSize: fz(16), color: colors.text, marginBottom: sz(8) },
+  line: { flexDirection: 'row', alignItems: 'center', marginBottom: sz(6) },
+  lineGap: { marginTop: sz(12) },
+  lineLabel: { fontFamily: 'Poppins-Regular', fontSize: fz(15), color: colors.text, marginLeft: sz(8) },
+  lineValue: { fontFamily: 'Poppins-Medium', fontSize: fz(15), color: colors.muted },
+  foot: { fontFamily: 'Poppins-Regular', fontSize: fz(14), color: colors.muted, marginTop: sz(10) },
+  section: { fontFamily: 'Poppins-Bold', fontSize: fz(20), color: colors.text, marginTop: sz(6), marginBottom: sz(10) },
   periodHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  mood: { fontSize: 22 },
+  mood: { fontSize: fz(22) },
 });

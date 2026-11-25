@@ -84,7 +84,7 @@ describe('Profile: goals and reminders', () => {
     steps: {count: 0, goal: settings.stepGoal, percent: 0, distanceKm: 0, kcal: 0, perStep: {km: 0.00075, kcal: 0.04}},
     water: {ml: 0, glasses: 0, goalMl: 2000, goalGlasses: 8, percent: 0},
     mood: null,
-    goals: {items: [], done: 1, total: 3, percent: 33, complete: false},
+    goals: {items: [], done: 0, total: 2, percent: 0, complete: false},
     streak: {current: 0, best: 0},
     week: WEEK,
   });

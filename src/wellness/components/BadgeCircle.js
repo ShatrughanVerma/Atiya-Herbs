@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { colors } from '../../theme';
 import { shortDay } from '../utils/dates';
+import { fz, sz } from '../utils/scale';
 
 // One badge: green with its picture when it is won, grey with the progress ("3/7") while it is still to win
 export default function BadgeCircle({ badge }) {
@@ -11,7 +12,7 @@ export default function BadgeCircle({ badge }) {
       <View style={[styles.circle, badge.earned && styles.circleOn]}>
         <Icon
           name={badge.icon}
-          size={26}
+          size={sz(26)}
           color={badge.earned ? '#fff' : '#9AA39C'}
         />
       </View>
@@ -28,11 +29,11 @@ export default function BadgeCircle({ badge }) {
 }
 
 const styles = StyleSheet.create({
-  cell: { width: '25%', alignItems: 'center', marginBottom: 14, paddingHorizontal: 2 },
+  cell: { width: '25%', alignItems: 'center', marginBottom: sz(14), paddingHorizontal: sz(2) },
   circle: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: sz(54),
+    height: sz(54),
+    borderRadius: sz(27),
     backgroundColor: '#E6EAE7',
     borderWidth: 2,
     borderColor: '#D3D9D5',
@@ -40,7 +41,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   circleOn: { backgroundColor: colors.primary, borderColor: '#7FD19E' },
-  name: { fontFamily: 'Poppins-Regular', fontSize: 11.5, color: colors.text, textAlign: 'center', marginTop: 6 },
-  progress: { fontFamily: 'Poppins-Regular', fontSize: 11.5, color: '#9AA39C' },
+  name: { fontFamily: 'Poppins-Regular', fontSize: fz(11.5), color: colors.text, textAlign: 'center', marginTop: sz(6) },
+  progress: { fontFamily: 'Poppins-Regular', fontSize: fz(11.5), color: '#9AA39C' },
   progressOn: { color: colors.primary, fontFamily: 'Poppins-Medium' },
 });

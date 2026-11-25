@@ -20,6 +20,7 @@ import { useWellness } from '../context/WellnessContext';
 import { fetchHistory, fetchWalks } from '../services/wellnessApi';
 import { dayLabel } from '../utils/dates';
 import { clock } from '../utils/stepMath';
+import { fz, sz } from '../utils/scale';
 
 const RANGES = [7, 30, 90];
 
@@ -109,7 +110,7 @@ export default function HealthScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={filled ? `Glass ${i + 1} drunk` : `Glass ${i + 1}`}
                 >
-                  <Icon name="water" size={26} color={filled ? BLUE : '#B8C2BB'} />
+                  <Icon name="water" size={sz(26)} color={filled ? BLUE : '#B8C2BB'} />
                 </Pressable>
               );
             })}
@@ -184,7 +185,7 @@ export default function HealthScreen() {
               <View style={styles.dayBars}>
                 <View style={styles.flex}>
                   <View style={styles.dayBarLabel}>
-                    <Icon name="water" size={16} color={BLUE} />
+                    <Icon name="water" size={sz(16)} color={BLUE} />
                     <Text style={styles.dayBarText}>
                       {item.glasses}/{item.goalGlasses}
                     </Text>
@@ -196,7 +197,7 @@ export default function HealthScreen() {
                 </View>
                 <View style={[styles.flex, styles.dayBarGap]}>
                   <View style={styles.dayBarLabel}>
-                    <Icon name="shoe-print" size={16} color="#F57C00" />
+                    <Icon name="shoe-print" size={sz(16)} color="#F57C00" />
                     <Text style={styles.dayBarText}>{item.steps.toLocaleString('en-IN')}</Text>
                   </View>
                   <ProgressBar percent={Math.round((item.steps / today.steps.goal) * 100)} color="#F57C00" />
@@ -213,38 +214,38 @@ export default function HealthScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: WELLNESS_BG },
   flex: { flex: 1 },
-  scroll: { padding: 16, paddingBottom: 120 },
-  title: { fontFamily: 'Poppins-Bold', fontSize: 28, color: colors.text, marginBottom: 14, paddingHorizontal: 0 },
-  waterLine: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 12 },
-  waterBig: { fontFamily: 'Poppins-Bold', fontSize: 20, color: colors.text, marginRight: 10 },
-  muted: { fontFamily: 'Poppins-Regular', fontSize: 13, color: colors.muted },
+  scroll: { padding: sz(16), paddingBottom: sz(120) },
+  title: { fontFamily: 'Poppins-Bold', fontSize: fz(28), color: colors.text, marginBottom: sz(14), paddingHorizontal: sz(0) },
+  waterLine: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', marginBottom: sz(12) },
+  waterBig: { fontFamily: 'Poppins-Bold', fontSize: fz(20), color: colors.text, marginRight: sz(10) },
+  muted: { fontFamily: 'Poppins-Regular', fontSize: fz(13), color: colors.muted },
   glasses: { flexDirection: 'row', flexWrap: 'wrap' },
   glass: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: sz(48),
+    height: sz(48),
+    borderRadius: sz(14),
     backgroundColor: '#F1F6F2',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
-    marginBottom: 8,
+    marginRight: sz(8),
+    marginBottom: sz(8),
     borderWidth: 1.5,
     borderColor: 'transparent',
   },
   glassOn: { backgroundColor: BLUE_LIGHT, borderColor: BLUE },
-  hint: { fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.muted, marginTop: 4 },
-  body: { fontFamily: 'Poppins-Regular', fontSize: 15, color: colors.muted },
-  section: { fontFamily: 'Poppins-Bold', fontSize: 22, color: colors.text, marginTop: 6, marginBottom: 8 },
-  chips: { flexDirection: 'row', marginBottom: 12 },
-  dayHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  dayTitle: { fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.text },
+  hint: { fontFamily: 'Poppins-Regular', fontSize: fz(12.5), color: colors.muted, marginTop: sz(4) },
+  body: { fontFamily: 'Poppins-Regular', fontSize: fz(15), color: colors.muted },
+  section: { fontFamily: 'Poppins-Bold', fontSize: fz(22), color: colors.text, marginTop: sz(6), marginBottom: sz(8) },
+  chips: { flexDirection: 'row', marginBottom: sz(12) },
+  dayHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: sz(10) },
+  dayTitle: { fontFamily: 'Poppins-SemiBold', fontSize: fz(16), color: colors.text },
   dayRight: { flexDirection: 'row', alignItems: 'center' },
-  dayMood: { fontSize: 22, marginRight: 8 },
-  complete: { backgroundColor: '#E7F8EE', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4 },
-  completeText: { fontFamily: 'Poppins-Medium', fontSize: 12, color: colors.primary },
+  dayMood: { fontSize: fz(22), marginRight: sz(8) },
+  complete: { backgroundColor: '#E7F8EE', borderRadius: sz(14), paddingHorizontal: sz(10), paddingVertical: sz(4) },
+  completeText: { fontFamily: 'Poppins-Medium', fontSize: fz(12), color: colors.primary },
   dayBars: { flexDirection: 'row' },
-  dayBarGap: { marginLeft: 16 },
-  dayBarLabel: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  dayBarText: { fontFamily: 'Poppins-Medium', fontSize: 13, color: colors.text, marginLeft: 6 },
-  walkTime: { fontFamily: 'Poppins-SemiBold', fontSize: 15, color: colors.primary },
+  dayBarGap: { marginLeft: sz(16) },
+  dayBarLabel: { flexDirection: 'row', alignItems: 'center', marginBottom: sz(6) },
+  dayBarText: { fontFamily: 'Poppins-Medium', fontSize: fz(13), color: colors.text, marginLeft: sz(6) },
+  walkTime: { fontFamily: 'Poppins-SemiBold', fontSize: fz(15), color: colors.primary },
 });

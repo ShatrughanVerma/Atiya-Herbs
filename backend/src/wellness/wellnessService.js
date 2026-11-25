@@ -30,8 +30,8 @@ const MAX_WATER_ML = 10_000; // one person cannot drink more than this in a day:
 const STREAK_LOOK_BACK_DAYS = 400;
 
 // A person's wellness day: water, mood (and later medicines). Every query carries the userId from the login token.
-//  - A day is "complete" when every goal of the day is done: the water goal, a mood, and the medicines
-//    (done when there are none due; medicines come in a later version).
+//  - A day is "complete" when every goal of the day is done: the water goal and a mood. Medicines are not a goal until
+//    they can be added (a later version): a goal nobody can work on must not count as done.
 //  - The streak counts complete days in a row. A day that is not complete YET does not break it until the day is over.
 function createWellnessService({prisma, now = () => new Date(), stepWindow = createStepWindow({redis: null})}) {
   const today = () => istDay(now());
@@ -107,7 +107,6 @@ function createWellnessService({prisma, now = () => new Date(), stepWindow = cre
 
     const goals = [
       {id: 'water', done: waterMl >= goalMl},
-      {id: 'medicines', done: true, none: true}, // nothing is due until medicines are added
       {id: 'mood', done: Boolean(mood)},
     ];
     const done = goals.filter(goal => goal.done).length;

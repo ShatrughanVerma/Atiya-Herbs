@@ -37,7 +37,7 @@ const TODAY = (steps = 0) => ({
   steps: {count: steps, goal: 6000, percent: 0, distanceKm: 0, kcal: 0, perStep: {km: 0.00075, kcal: 0.04}},
   water: {ml: 0, glasses: 0, goalMl: 2000, goalGlasses: 8, percent: 0},
   mood: null,
-  goals: {items: [{id: 'water', done: false}, {id: 'medicines', done: true, none: true}, {id: 'mood', done: false}], done: 1, total: 3, percent: 33, complete: false},
+  goals: {items: [{id: 'water', done: false}, {id: 'mood', done: false}], done: 0, total: 2, percent: 0, complete: false},
   streak: {current: 0, best: 0},
   week: Array.from({length: 7}, (_, i) => ({day: `2026-11-${18 + i}`, waterMl: 0, glasses: 0, steps: 0})),
 });

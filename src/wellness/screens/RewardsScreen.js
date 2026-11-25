@@ -10,6 +10,7 @@ import { Card, CardTitle, Chip, ProgressBar, WELLNESS_BG } from '../components/p
 import { useWellness } from '../context/WellnessContext';
 import { fetchRewards, redeemPoints } from '../services/wellnessApi';
 import { shortDay } from '../utils/dates';
+import { fz, sz } from '../utils/scale';
 
 const PURPLE = '#7C3AED';
 const ORANGE = '#F57C00';
@@ -99,7 +100,7 @@ export default function RewardsScreen() {
 
         <View style={styles.hero}>
           <View style={styles.heroIcon}>
-            <Icon name="gift" size={34} color={ORANGE} />
+            <Icon name="gift" size={sz(34)} color={ORANGE} />
           </View>
           <View style={styles.flex}>
             <Text style={styles.heroSmall}>Your points</Text>
@@ -141,7 +142,7 @@ export default function RewardsScreen() {
           {data.earn.map(rule => (
             <View key={rule.id} style={styles.earnRow}>
               <View style={styles.earnIcon}>
-                <Icon name={EARN_ICONS[rule.id]} size={20} color={EARN_COLORS[rule.id]} />
+                <Icon name={EARN_ICONS[rule.id]} size={sz(20)} color={EARN_COLORS[rule.id]} />
               </View>
               <Text style={[styles.earnLabel, styles.flex]}>{rule.label}</Text>
               <Text style={styles.earnPoints}>+{rule.points}</Text>
@@ -216,28 +217,28 @@ export default function RewardsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: WELLNESS_BG },
   flex: { flex: 1 },
-  scroll: { padding: 16, paddingBottom: 120 },
-  title: { fontFamily: 'Poppins-Bold', fontSize: 28, color: colors.text, marginBottom: 14 },
-  hero: { flexDirection: 'row', alignItems: 'center', backgroundColor: PURPLE, borderRadius: 22, padding: 16, marginBottom: 14 },
-  heroIcon: { width: 70, height: 70, borderRadius: 18, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginRight: 14 },
-  heroSmall: { fontFamily: 'Poppins-Regular', fontSize: 13.5, color: '#EADCFF' },
-  heroPoints: { fontFamily: 'Poppins-Bold', fontSize: 34, color: '#fff' },
-  body: { fontFamily: 'Poppins-Regular', fontSize: 14, color: colors.muted },
-  gap: { marginTop: 10 },
-  muted: { fontFamily: 'Poppins-Regular', fontSize: 12.5, color: colors.muted },
-  redeem: { height: 48, borderRadius: 24, backgroundColor: PURPLE, alignItems: 'center', justifyContent: 'center', marginTop: 14 },
+  scroll: { padding: sz(16), paddingBottom: sz(120) },
+  title: { fontFamily: 'Poppins-Bold', fontSize: fz(28), color: colors.text, marginBottom: sz(14) },
+  hero: { flexDirection: 'row', alignItems: 'center', backgroundColor: PURPLE, borderRadius: sz(22), padding: sz(16), marginBottom: sz(14) },
+  heroIcon: { width: sz(70), height: sz(70), borderRadius: sz(18), backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginRight: sz(14) },
+  heroSmall: { fontFamily: 'Poppins-Regular', fontSize: fz(13.5), color: '#EADCFF' },
+  heroPoints: { fontFamily: 'Poppins-Bold', fontSize: fz(34), color: '#fff' },
+  body: { fontFamily: 'Poppins-Regular', fontSize: fz(14), color: colors.muted },
+  gap: { marginTop: sz(10) },
+  muted: { fontFamily: 'Poppins-Regular', fontSize: fz(12.5), color: colors.muted },
+  redeem: { height: sz(48), borderRadius: sz(24), backgroundColor: PURPLE, alignItems: 'center', justifyContent: 'center', marginTop: sz(14) },
   redeemOff: { opacity: 0.45 },
-  redeemText: { fontFamily: 'Poppins-SemiBold', fontSize: 15, color: '#fff' },
-  earnRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
-  earnIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#F1F6F2', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  earnLabel: { fontFamily: 'Poppins-Regular', fontSize: 15, color: colors.text },
-  earnPoints: { fontFamily: 'Poppins-SemiBold', fontSize: 15, color: PURPLE },
-  challenge: { backgroundColor: '#FFF1E4', borderRadius: 14, padding: 12, marginBottom: 10 },
-  challengeTitle: { fontFamily: 'Poppins-SemiBold', fontSize: 14.5, color: colors.text, marginBottom: 8 },
+  redeemText: { fontFamily: 'Poppins-SemiBold', fontSize: fz(15), color: '#fff' },
+  earnRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: sz(8) },
+  earnIcon: { width: sz(38), height: sz(38), borderRadius: sz(12), backgroundColor: '#F1F6F2', alignItems: 'center', justifyContent: 'center', marginRight: sz(12) },
+  earnLabel: { fontFamily: 'Poppins-Regular', fontSize: fz(15), color: colors.text },
+  earnPoints: { fontFamily: 'Poppins-SemiBold', fontSize: fz(15), color: PURPLE },
+  challenge: { backgroundColor: '#FFF1E4', borderRadius: sz(14), padding: sz(12), marginBottom: sz(10) },
+  challengeTitle: { fontFamily: 'Poppins-SemiBold', fontSize: fz(14.5), color: colors.text, marginBottom: sz(8) },
   badges: { flexDirection: 'row', flexWrap: 'wrap' },
-  tabs: { flexDirection: 'row', marginBottom: 10 },
-  historyRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
-  historyLabel: { fontFamily: 'Poppins-Regular', fontSize: 15, color: colors.text },
-  historyPoints: { fontFamily: 'Poppins-SemiBold', fontSize: 16, color: colors.primary },
+  tabs: { flexDirection: 'row', marginBottom: sz(10) },
+  historyRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: sz(10) },
+  historyLabel: { fontFamily: 'Poppins-Regular', fontSize: fz(15), color: colors.text },
+  historyPoints: { fontFamily: 'Poppins-SemiBold', fontSize: fz(16), color: colors.primary },
   historyOut: { color: PURPLE },
 });
