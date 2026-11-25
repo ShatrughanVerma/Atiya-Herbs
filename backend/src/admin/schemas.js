@@ -148,6 +148,13 @@ const createDoctorLoginSchema = z
   })
   .strict();
 
+// ---- carts
+const cartsQuerySchema = z.object({...pagination}).strict();
+
+// ---- customers
+const customersQuerySchema = z.object({q: safeText(1, 80).optional(), status: z.enum(['active', 'blocked']).optional(), ...pagination}).strict();
+const customerStatusSchema = z.object({status: z.enum(['active', 'blocked'])}).strict();
+
 // ---- users and credits
 const findUserQuerySchema = z
   .object({mobile: z.string().regex(/^[6-9][0-9]{9}$/, 'Enter a valid 10-digit mobile number.').optional(), email: z.string().trim().toLowerCase().email().max(254).optional()})
@@ -181,4 +188,7 @@ module.exports = {
   updateClinicSchema,
   findUserQuerySchema,
   changeCreditsSchema,
+  customersQuerySchema,
+  customerStatusSchema,
+  cartsQuerySchema,
 };

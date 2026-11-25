@@ -30,7 +30,11 @@ const {createFolderStorage, createVideoStorage} = require('./videos/storage');
 const {createVideosService} = require('./videos/videosService');
 const {createAppointmentsAdmin} = require('./admin/appointmentsAdmin');
 const {createClinicsAdmin} = require('./admin/clinicsAdmin');
+const {createCartsAdmin} = require('./admin/cartsAdmin');
+const {createBannerImages} = require('./catalog/bannerImages');
 const {createCreditsAdmin} = require('./admin/creditsAdmin');
+const {createCustomersAdmin} = require('./admin/customersAdmin');
+const {createShopSummaryAdmin} = require('./admin/shopSummaryAdmin');
 const {createDashboardAdmin} = require('./admin/dashboardAdmin');
 const {createDoctorsAdmin} = require('./admin/doctorsAdmin');
 const {createUploads} = require('./admin/uploads');
@@ -80,6 +84,10 @@ function createApp({config, prisma, sender, logger = console, google = createGoo
   // Health checks come first: they are cheap, public and must never be rate limited
   app.use('/api/v1/health', createHealthRoutes({prisma}));
 
+  // Banner pictures are public and may be cached, so they come before the no-cache rule
+  const bannerImages = createBannerImages({prisma});
+  app.use('/api/v1/banner-images', bannerImages.routes);
+
   // Responses can hold tokens, so nothing may be cached by browsers or proxies
   app.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -109,7 +117,11 @@ function createApp({config, prisma, sender, logger = console, google = createGoo
     clinics: createClinicsAdmin({prisma, audit}),
     credits: createCreditsAdmin({prisma, audit, consultation}),
     dashboard: createDashboardAdmin({prisma}),
+    customers: createCustomersAdmin({prisma, audit}),
+    shopSummary: createShopSummaryAdmin({prisma}),
+    carts: createCartsAdmin({prisma}),
     uploads: createUploads({config}),
+    bannerImages,
   };
 
   app.use('/api/v1/auth', createAuthRoutes({auth}));

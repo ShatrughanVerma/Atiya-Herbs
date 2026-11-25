@@ -2,6 +2,7 @@ const {randomBytes} = require('node:crypto');
 const {badRequest, conflict, notFound} = require('../common/errors');
 const {pageArgs, pageOf} = require('../common/paging');
 const {applyCoupon} = require('../catalog/coupons');
+const {formatPatientCode, parsePatientCode} = require('../common/patientCode');
 
 // What each status may become next. Cancelling is also allowed while the order is placed or confirmed.
 const NEXT = {
@@ -13,6 +14,7 @@ const NEXT = {
 };
 const CANCELLABLE = ['placed', 'confirmed'];
 const OPEN = ['placed', 'confirmed', 'shipped'];
+const TRACKABLE = ['confirmed', 'shipped'];
 
 // AH-<time>-<random>, easy to read out on the phone
 const newOrderNumber = () => `AH-${Date.now().toString(36).toUpperCase()}-${randomBytes(3).toString('hex').toUpperCase()}`;
@@ -28,6 +30,8 @@ const toOrder = (order, items) => ({
   total: order.total,
   couponCode: order.couponCode,
   shippingAddress: order.shippingAddress,
+  trackingId: order.trackingId ?? null,
+  courier: order.courier ?? null,
   items: items.map(i => ({productId: i.productId, name: i.name, image: i.image, price: i.price, qty: i.qty})),
   createdAt: order.createdAt,
   cancelledAt: order.cancelledAt,
@@ -46,6 +50,21 @@ function createOrdersService({prisma, audit}) {
   const withItems = async orders => {
     const map = await itemsFor(orders.map(o => o.id));
     return orders.map(o => toOrder(o, map.get(o.id) ?? []));
+  };
+
+  // Staff see whose account placed each order (it can differ from the delivery name). null once the account is deleted.
+  const withCustomers = async orders => {
+    const ids = [...new Set(orders.map(o => o.userId).filter(Boolean))];
+    const users = ids.length ? await prisma.user.findMany({where: {id: {in: ids}}}) : [];
+    const byId = new Map(users.map(u => [u.id, {id: u.id, patientCode: formatPatientCode(u.patientNo), name: u.name, mobile: u.mobile}]));
+    return (await withItems(orders)).map((order, i) => ({...order, customer: byId.get(orders[i].userId) ?? null}));
+  };
+
+  // Order number, or the customer's name, mobile or patient id (P000123)
+  const searchWhere = async q => {
+    const patientNo = parsePatientCode(q);
+    const users = await prisma.user.findMany({where: patientNo ? {patientNo} : {OR: [{name: {contains: q}}, {mobile: {contains: q}}]}, take: 200});
+    return {OR: [{orderNumber: {contains: q}}, {userId: {in: users.map(u => u.id)}}]};
   };
 
   // Puts the stock of a cancelled order back. Run inside the same transaction as the status change.
@@ -189,12 +208,28 @@ function createOrdersService({prisma, audit}) {
     // ---------------- admin ----------------
 
     async listAll(query) {
-      const where = query.status ? {status: query.status} : {};
+      const where = {...(query.status && {status: query.status}), ...(query.q && (await searchWhere(query.q)))};
       const [rows, total] = await Promise.all([
         prisma.order.findMany({where, orderBy: {createdAt: 'desc'}, ...pageArgs(query)}),
         prisma.order.count({where}),
       ]);
-      return pageOf(await withItems(rows), total, query);
+      return pageOf(await withCustomers(rows), total, query);
+    },
+
+    // Allowed once the order is confirmed. It can be corrected until the order is delivered.
+    async setTracking(id, {trackingId, courier}, adminId, ip) {
+      if (!(await prisma.order.findUnique({where: {id}}))) {
+        throw notFound('Order not found.');
+      }
+      if (await prisma.order.findFirst({where: {trackingId, id: {not: id}}})) {
+        throw conflict('Another order already has this tracking id.');
+      }
+      const saved = await prisma.order.updateMany({where: {id, status: {in: TRACKABLE}}, data: {trackingId, courier: courier ?? null}});
+      if (saved.count !== 1) {
+        throw conflict('A tracking id can be added only after the order is confirmed.');
+      }
+      await audit.record({action: 'order.tracking.changed', userId: adminId, ip, metadata: {orderId: id, trackingId}});
+      return (await withCustomers([await prisma.order.findUnique({where: {id}})]))[0];
     },
 
     async setStatus(id, status, adminId, ip) {

@@ -199,6 +199,49 @@ describe('admin changes to the shop', () => {
     await request(t.app).delete(`${API}/categories/hair-care`).set(t.bearer(admin)).expect(404);
   });
 
+  test('admin reads switched-off products and banners; a customer cannot', async () => {
+    const t = await shop();
+    const admin = await t.loginAs('admin');
+    const customer = await t.login('9123456780');
+    await request(t.app).get(`${API}/admin/banners`).set(t.bearer(customer)).expect(403);
+    const banner = await request(t.app).post(`${API}/banners`).set(t.bearer(admin)).send({title: 'Hidden offer', image: 'banner_one', active: false}).expect(201);
+    const banners = await request(t.app).get(`${API}/admin/banners`).set(t.bearer(admin)).expect(200);
+    expect(banners.body.find(b => b.id === banner.body.id)).toMatchObject({active: false, sortOrder: 0});
+    await request(t.app).delete(`${API}/banners/${banner.body.id}`).set(t.bearer(admin)).expect(204);
+
+    const {id} = (await request(t.app).get(`${API}/admin/products`).set(t.bearer(admin)).expect(200)).body.items[0];
+    await request(t.app).get(`${API}/admin/products/${id}`).set(t.bearer(customer)).expect(403);
+    await request(t.app).patch(`${API}/products/${id}`).set(t.bearer(admin)).send({active: false}).expect(200);
+    await request(t.app).get(`${API}/products/${id}`).expect(404);
+    const product = await request(t.app).get(`${API}/admin/products/${id}`).set(t.bearer(admin)).expect(200);
+    expect(product.body.active).toBe(false);
+    await request(t.app).patch(`${API}/products/${id}`).set(t.bearer(admin)).send({active: true}).expect(200);
+  });
+
+  test('a banner picture is uploaded by an admin only, checked, served to everyone and usable in a banner', async () => {
+    const app = buildTestApp();
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('picture')]);
+    const send = (who, body, type = 'image/png') => request(app.app).post(`${API}/admin/banners/image`).set(app.bearer(who)).set('Content-Type', type).send(body);
+
+    const customer = await app.login('9123456780');
+    await send(customer, png).expect(403);
+    const admin = await app.loginAs('admin');
+    await send(admin, Buffer.from('<script>not a picture</script>')).expect(400);
+    await send(admin, Buffer.concat([png, Buffer.alloc(2 * 1024 * 1024)])).expect(413);
+
+    const {body} = await send(admin, png).expect(201);
+    expect(body.image).toMatch(/^uploads\/[0-9a-f-]{36}\.png$/);
+    const shown = await request(app.app).get(`${API}/banner-images/${body.image.slice(8)}`).expect(200);
+    expect(shown.headers['content-type']).toBe('image/png');
+    expect(shown.headers['cache-control']).toContain('max-age');
+    expect(Buffer.compare(shown.body, png)).toBe(0);
+    await request(app.app).get(`${API}/banner-images/00000000-0000-0000-0000-000000000000.png`).expect(404);
+    expect(shown.headers['cross-origin-resource-policy']).toBe('cross-origin');
+    await request(app.app).get(`${API}/banner-images/..%2F..%2F.env`).expect(404);
+    await request(app.app).post(`${API}/banners`).set(app.bearer(admin)).send({title: 'From my computer', image: body.image}).expect(201);
+    await request(app.app).post(`${API}/banners`).set(app.bearer(admin)).send({title: 'Bad path', image: 'uploads/../x.png'}).expect(400);
+  });
+
   test('banners and coupons: add, change, remove', async () => {
     const t = await shop();
     const admin = await t.loginAs('admin');
@@ -208,13 +251,16 @@ describe('admin changes to the shop', () => {
     await request(t.app).delete(`${API}/banners/${banner.body.id}`).set(t.bearer(admin)).expect(204);
     expect((await request(t.app).get(`${API}/banners`)).body).toHaveLength(1);
 
-    const coupon = await request(t.app).post(`${API}/coupons`).set(t.bearer(admin)).send({code: 'diwali20', label: '20% off', percent: 20, expiresAt: '2099-01-01T00:00:00Z'}).expect(201);
-    expect(coupon.body.code).toBe('DIWALI20');
-    await request(t.app).post(`${API}/coupons`).set(t.bearer(admin)).send({code: 'DIWALI20', label: 'again', percent: 5}).expect(409);
-    await request(t.app).patch(`${API}/coupons/diwali20`).set(t.bearer(admin)).send({percent: 25}).expect(200);
+    const coupon = await request(t.app).post(`${API}/coupons`).set(t.bearer(admin)).send({code: '2026', label: '20% off', percent: 20, expiresAt: '2099-01-01T00:00:00Z'}).expect(201);
+    expect(coupon.body.code).toBe('2026');
+    await request(t.app).post(`${API}/coupons`).set(t.bearer(admin)).send({code: '2026', label: 'again', percent: 5}).expect(409);
+    await request(t.app).patch(`${API}/coupons/2026`).set(t.bearer(admin)).send({percent: 25}).expect(200);
     await request(t.app).post(`${API}/coupons`).set(t.bearer(admin)).send({code: 'BAD', label: 'x1', percent: 150}).expect(400);
-    expect((await request(t.app).get(`${API}/coupons`).set(t.bearer(admin))).body.map(c => c.code)).toEqual(['ATIYA10', 'DIWALI20']);
-    await request(t.app).delete(`${API}/coupons/DIWALI20`).set(t.bearer(admin)).expect(204);
+    for (const code of ['DIWALI20', '123', '12345', '12a4', 1234]) {
+      await request(t.app).post(`${API}/coupons`).set(t.bearer(admin)).send({code, label: 'bad code', percent: 5}).expect(400);
+    }
+    expect((await request(t.app).get(`${API}/coupons`).set(t.bearer(admin))).body.map(c => c.code)).toEqual(['2026', 'ATIYA10']);
+    await request(t.app).delete(`${API}/coupons/2026`).set(t.bearer(admin)).expect(204);
   });
 
   test('admin changes are written to the audit trail', async () => {

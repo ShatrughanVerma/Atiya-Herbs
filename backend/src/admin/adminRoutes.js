@@ -6,6 +6,7 @@ const {validateBody, validateQuery} = require('../common/validate');
 const {adminVideosQuerySchema, holdSchema, linkSchema} = require('../videos/schemas');
 const {
   adminAppointmentsQuerySchema,
+  cartsQuerySchema,
   adminDoctorsQuerySchema,
   cancelSchema,
   changeCreditsSchema,
@@ -13,6 +14,8 @@ const {
   createClinicSchema,
   createDoctorLoginSchema,
   createDoctorSchema,
+  customersQuerySchema,
+  customerStatusSchema,
   doctorLoginSchema,
   findUserQuerySchema,
   noteSchema,
@@ -25,7 +28,7 @@ const checkId = (req, res, next) => (idParam.safeParse(req.params.id).success ? 
 
 // Everything under /api/v1/admin. One guard at the top: a person who is not logged in gets 401, a logged-in
 // person without the Admin role gets 403, whatever route they try. The staff member's id always comes from the token.
-function createAdminRoutes({requireAuth, requireRole, videos, appointments, doctors, clinics, credits, dashboard, uploads}) {
+function createAdminRoutes({requireAuth, requireRole, videos, appointments, doctors, clinics, credits, dashboard, uploads, customers, shopSummary, carts, bannerImages}) {
   const router = express.Router();
   router.use(requireAuth, requireRole('admin'));
 
@@ -46,6 +49,7 @@ function createAdminRoutes({requireAuth, requireRole, videos, appointments, doct
 
   router.get('/doctors', validateQuery(adminDoctorsQuerySchema), async (req, res) => res.json(await doctors.list(req.parsedQuery)));
   router.post('/doctors/photo-upload', createLimiter({limit: 30}), (req, res) => res.json(uploads.signPhotoUpload()));
+  router.post('/banners/image', createLimiter({limit: 30}), bannerImages.upload, async (req, res) => res.status(201).json(await bannerImages.save(req.body)));
   router.post('/doctors', validateBody(createDoctorSchema), async (req, res) => res.status(201).json(await doctors.create(req.user, req.body)));
   router.get('/doctors/:id', checkId, async (req, res) => res.json(await doctors.get(req.params.id)));
   router.patch('/doctors/:id', checkId, validateBody(updateDoctorSchema), async (req, res) => {
@@ -81,6 +85,14 @@ function createAdminRoutes({requireAuth, requireRole, videos, appointments, doct
   router.post('/clinics', validateBody(createClinicSchema), async (req, res) => res.status(201).json(await clinics.create(req.user, req.body)));
   router.patch('/clinics/:id', checkId, validateBody(updateClinicSchema), async (req, res) => {
     res.json(await clinics.update(req.user, req.params.id, req.body));
+  });
+
+  router.get('/shop-summary', async (req, res) => res.json(await shopSummary.summary()));
+  router.get('/carts', validateQuery(cartsQuerySchema), async (req, res) => res.json(await carts.list(req.parsedQuery)));
+  router.get('/customers', validateQuery(customersQuerySchema), async (req, res) => res.json(await customers.list(req.parsedQuery)));
+  router.get('/customers/:id', checkId, async (req, res) => res.json(await customers.get(req.params.id)));
+  router.patch('/customers/:id', checkId, createLimiter({limit: 60}), validateBody(customerStatusSchema), async (req, res) => {
+    res.json(await customers.setStatus(req.user, req.params.id, req.body.status));
   });
 
   router.get('/users', validateQuery(findUserQuerySchema), async (req, res) => res.json(await credits.find(req.parsedQuery)));

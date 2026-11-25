@@ -3,7 +3,7 @@ const {badRequest} = require('../common/errors');
 const {createLimiter} = require('../common/rateLimit');
 const {idParam} = require('../common/schemas');
 const {validateBody, validateQuery} = require('../common/validate');
-const {createOrderSchema, listOrdersQuerySchema, adminListQuerySchema, updateStatusSchema} = require('./schemas');
+const {createOrderSchema, listOrdersQuerySchema, adminListQuerySchema, updateStatusSchema, trackingSchema} = require('./schemas');
 
 const checkId = (req, res, next) => (idParam.safeParse(req.params.id).success ? next() : next(badRequest('The id is not valid.')));
 
@@ -27,6 +27,9 @@ function createOrdersRoutes({orders, requireAuth, requireRole}) {
   });
   router.patch('/admin/orders/:id/status', requireAuth, requireRole('admin'), checkId, validateBody(updateStatusSchema), async (req, res) => {
     res.json(await orders.setStatus(req.params.id, req.body.status, req.user.id, req.ip ?? null));
+  });
+  router.patch('/admin/orders/:id/tracking', requireAuth, requireRole('admin'), checkId, validateBody(trackingSchema), async (req, res) => {
+    res.json(await orders.setTracking(req.params.id, req.body, req.user.id, req.ip ?? null));
   });
 
   return router;

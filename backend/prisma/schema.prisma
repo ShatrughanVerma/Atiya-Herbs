@@ -392,6 +392,8 @@ model Order {
   couponCode      String?       @db.VarChar(32)
   shippingAddress Json
   cancelledAt     DateTime?
+  trackingId      String?       @db.VarChar(40) // given by staff once the order is confirmed
+  courier         String?       @db.VarChar(60)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -646,6 +648,16 @@ model VideoChunk {
 
   @@unique([fileKey, seq])
   @@map("video_chunks")
+}
+
+// Banner pictures uploaded in the admin panel (at most 2 MB each). A banner points to one as "uploads/<name>".
+// Kept in the database because the disk of the hosted server is emptied on every deploy and restart.
+model BannerImage {
+  name      String   @id @db.VarChar(48) // <uuid>.jpg, .png or .webp
+  data      Bytes    @db.MediumBlob
+  createdAt DateTime @default(now())
+
+  @@map("banner_images")
 }
 
 // The access log of the videos: one row every time somebody plays (or downloads) a video. Times are India time (IST).

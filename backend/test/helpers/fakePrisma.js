@@ -251,6 +251,8 @@ function createFakePrisma() {
         shippingFee: 0,
         couponCode: null,
         cancelledAt: null,
+        trackingId: null,
+        courier: null,
         createdAt: now(),
         updatedAt: now(),
       }),
@@ -270,6 +272,7 @@ function createFakePrisma() {
       defaults: () => ({id: randomUUID(), videoNo: ++videoNoSeq, fileName: null, location: null, sessionId: null, videoCode: null, consultationDateTime: null, createdBy: null, status: 'uploading', createdAt: now()}),
     }),
     videoChunk: createTable({defaults: () => ({})}),
+    bannerImage: createTable({unique: ['name'], defaults: () => ({createdAt: now()})}),
     log: createTable({defaults: () => ({serialNo: ++logSeq, whoPlayed: null, whoDownloaded: null, uidName: null, videoFile: null, patientPhone: null, patientId: null, createdBy: null, createdOn: now()})}),
     videoAudit: createTable({defaults: () => ({id: ++videoAuditSeq, userId: null, ip: null, createdAt: now()})}),
     callLog: createTable({

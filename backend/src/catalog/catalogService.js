@@ -127,6 +127,10 @@ function createCatalogService({prisma, audit}) {
     listBanners: () =>
       prisma.banner.findMany({where: {active: true}, orderBy: BY_ORDER}).then(rows => rows.map(toBanner)),
 
+    // The admin also needs the switched-off banners, to switch them on again
+    listAllBanners: () =>
+      prisma.banner.findMany({orderBy: BY_ORDER}).then(rows => rows.map(b => ({...toBanner(b), sortOrder: b.sortOrder, active: b.active}))),
+
     // Tells the app what a coupon would take off this subtotal (the order itself always works it out again)
     async validateCoupon({code, subtotal}) {
       const {coupon, discount} = await applyCoupon(prisma, code, subtotal);

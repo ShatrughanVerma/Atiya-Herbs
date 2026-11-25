@@ -96,6 +96,8 @@ stock or 10), `requested` (only when it was cut down) and `issue`: `null`, `limi
 | `GET /orders`, `GET /orders/:id` | My orders, newest first |
 | `POST /orders/:id/cancel` | Only while `placed` or `confirmed`; puts the stock back |
 | `GET /admin/orders?status=` | Admin: every order |
+| `GET /admin/carts` | Admin: carts that still have items (not ordered yet), newest change first |
+| `PATCH /admin/orders/:id/tracking` `{trackingId, courier?}` | Admin: only for a `confirmed` or `shipped` order. The customer sees it |
 | `PATCH /admin/orders/:id/status` `{status}` | Admin: `placed → confirmed → shipped → delivered`, or `cancelled` before shipping |
 
 There is no card, UPI or other online payment, and no card or billing data is stored anywhere.

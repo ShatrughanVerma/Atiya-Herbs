@@ -45,6 +45,10 @@ function createCatalogRoutes({catalog, requireAuth, requireRole}) {
   router.get('/admin/products', ...admin, validateQuery(productQuerySchema), async (req, res) => {
     res.json(await catalog.listProducts(req.parsedQuery, {includeInactive: true}));
   });
+  router.get('/admin/products/:id', ...admin, checkId, async (req, res) => {
+    res.json(await catalog.getProduct(req.params.id, {includeInactive: true}));
+  });
+  router.get('/admin/banners', ...admin, async (req, res) => res.json(await catalog.listAllBanners()));
   router.post('/products', ...admin, validateBody(createProductSchema), async (req, res) => {
     res.status(201).json(await catalog.createProduct(req.body, req.user.id, ip(req)));
   });

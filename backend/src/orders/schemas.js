@@ -1,5 +1,5 @@
 const {z} = require('zod');
-const {pagination, slug} = require('../common/schemas');
+const {pagination, safeText, slug} = require('../common/schemas');
 
 const ORDER_STATUSES = ['placed', 'confirmed', 'shipped', 'delivered', 'cancelled'];
 
@@ -20,8 +20,15 @@ const createOrderSchema = z
 
 const listOrdersQuerySchema = z.object({...pagination}).strict();
 
-const adminListQuerySchema = z.object({status: z.enum(ORDER_STATUSES).optional(), ...pagination}).strict();
+const adminListQuerySchema = z.object({status: z.enum(ORDER_STATUSES).optional(), q: safeText(1, 60).optional(), ...pagination}).strict();
 
 const updateStatusSchema = z.object({status: z.enum(ORDER_STATUSES)}).strict();
 
-module.exports = {createOrderSchema, listOrdersQuerySchema, adminListQuerySchema, updateStatusSchema, ORDER_STATUSES};
+const trackingSchema = z
+  .object({
+    trackingId: z.string().trim().regex(/^[A-Za-z0-9-]{4,40}$/, 'Use 4-40 letters, numbers and dashes.'),
+    courier: safeText(2, 60).nullable().optional(),
+  })
+  .strict();
+
+module.exports = {trackingSchema, createOrderSchema, listOrdersQuerySchema, adminListQuerySchema, updateStatusSchema, ORDER_STATUSES};

@@ -72,7 +72,7 @@ const updateCategorySchema = z
 const bannerFields = {
   badge: safeText(1, 60).nullable().optional(),
   title: safeText(2, 150),
-  image: z.union([imageUrl, z.string().regex(/^[a-z0-9_-]{1,64}$/, 'Use a full https:// link or an image key.')]),
+  image: z.union([imageUrl, z.string().regex(/^[a-z0-9_-]{1,64}$|^uploads\/[0-9a-f-]{36}\.(jpg|png|webp)$/, 'Use a full https:// link or an image key.')]),
   gradient: z.string().trim().max(200).regex(/^[a-zA-Z0-9#%(),.\s-]+$/, 'This has characters that are not allowed.').nullable().optional(),
   concernId: slug.nullable().optional(),
   categoryId: slug.nullable().optional(),
@@ -94,7 +94,7 @@ const couponFields = {
   active: z.boolean().optional(),
 };
 const createCouponSchema = z
-  .object({code: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{3,32}$/, 'Use 3-32 letters and numbers.'), ...couponFields})
+  .object({code: z.string().trim().regex(/^[0-9]{4}$/, 'Use exactly 4 digits.'), ...couponFields})
   .strict();
 const updateCouponSchema = z
   .object(Object.fromEntries(Object.entries(couponFields).map(([key, rule]) => [key, rule.optional()])))
